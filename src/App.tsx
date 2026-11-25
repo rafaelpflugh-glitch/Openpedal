@@ -4,6 +4,7 @@ import {
   AudioWaveform,
   Cable,
   Guitar,
+  Keyboard,
   Mic,
   MicOff,
   Play,
@@ -14,9 +15,18 @@ import {
   Volume2
 } from 'lucide-react';
 import { AudioDeviceList, OpenPedalEngine } from './audio/OpenPedalEngine';
+import {
+  DRUM_GROOVES,
+  DrumKitStyle,
+  DrumPadId,
+  DrumPattern,
+  DrumRouting
+} from './audio/drumEngine';
 import { IncomingMidiEvent, MidiDeviceSummary, MidiManager } from './audio/midiManager';
+import { InstrumentRouting, SynthVoicePreset } from './audio/synthEngine';
 import { AmpCabRack } from './components/AmpCabRack';
 import { AudioSetupModal } from './components/AudioSetupModal';
+import { InstrumentDeck, InstrumentTab } from './components/InstrumentDeck';
 import { LooperDeck } from './components/LooperDeck';
 import { MetronomeWidget } from './components/MetronomeWidget';
 import { MidiModal } from './components/MidiModal';
@@ -128,6 +138,26 @@ export const App: React.FC = () => {
   const [metroCurrentBeat, setMetroCurrentBeat] = useState(0);
   const [metroVolume, setMetroVolume] = useState(0.5);
 
+  // Virtual Instrument Deck (Piano / Synth + Electronic Drums)
+  const [instrumentOpen, setInstrumentOpen] = useState(false);
+  const [instrumentTab, setInstrumentTab] = useState<InstrumentTab>('piano');
+  const [pcCaptureEnabled, setPcCaptureEnabled] = useState(true);
+  const [synthPreset, setSynthPreset] = useState<SynthVoicePreset>('grand-piano');
+  const [synthRouting, setSynthRouting] = useState<InstrumentRouting>('clean-looper');
+  const [synthVolume, setSynthVolume] = useState(0.7);
+  const [synthOctave, setSynthOctave] = useState(4);
+  const [synthSustain, setSynthSustain] = useState(false);
+
+  const [drumKit, setDrumKit] = useState<DrumKitStyle>('acoustic-rock');
+  const [drumRouting, setDrumRouting] = useState<DrumRouting>('direct-clean');
+  const [drumVolume, setDrumVolume] = useState(0.85);
+  const [drumBpm, setDrumBpm] = useState(112);
+  const [drumPattern, setDrumPattern] = useState<DrumPattern>(() =>
+    JSON.parse(JSON.stringify(DRUM_GROOVES.rock.pattern))
+  );
+  const [drumSeqRunning, setDrumSeqRunning] = useState(false);
+  const [drumCurrentStep, setDrumCurrentStep] = useState(-1);
+
   // Modals & Drag
   const [audioModalOpen, setAudioModalOpen] = useState(false);
   const [midiModalOpen, setMidiModalOpen] = useState(false);
@@ -170,7 +200,8 @@ export const App: React.FC = () => {
     engine.setCallbacks({
       onGateStatus: (isOpen) => setGateIsOpen(isOpen),
       onLooperTelemetry: (tel) => setLooperTelemetry(tel),
-      onMetronomeBeat: (beat) => setMetroCurrentBeat(beat)
+      onMetronomeBeat: (beat) => setMetroCurrentBeat(beat),
+      onDrumStep: (step) => setDrumCurrentStep(step)
     });
   }, [engine]);
 
@@ -197,6 +228,14 @@ export const App: React.FC = () => {
         engine.metronomeSetBpm(metroBpm);
         engine.metronomeSetBeats(metroBeats);
         engine.metronomeSetVolume(metroVolume);
+        engine.synthSetPreset(synthPreset);
+        engine.synthSetVolume(synthVolume);
+        engine.synthSetRouting(synthRouting);
+        engine.drumSetKit(drumKit);
+        engine.drumSetVolume(drumVolume);
+        engine.drumSetRouting(drumRouting);
+        engine.drumSetBpm(drumBpm);
+        engine.drumSetPattern(drumPattern);
         setEngineReady(true);
         setLatencyInfo(engine.getLatencyInfo());
         await refreshDevices();
@@ -207,7 +246,25 @@ export const App: React.FC = () => {
       setAudioError(message);
       return false;
     }
-  }, [engine, rig, channelMode, testRiffStyle, looperVolume, metroBpm, metroBeats, metroVolume, refreshDevices]);
+  }, [
+    engine,
+    rig,
+    channelMode,
+    testRiffStyle,
+    looperVolume,
+    metroBpm,
+    metroBeats,
+    metroVolume,
+    synthPreset,
+    synthVolume,
+    synthRouting,
+    drumKit,
+    drumVolume,
+    drumRouting,
+    drumBpm,
+    drumPattern,
+    refreshDevices
+  ]);
 
   const handleToggleLiveInput = useCallback(async () => {
     const ok = await ensureEngineStarted();
@@ -574,6 +631,120 @@ export const App: React.FC = () => {
     engine.metronomeSetVolume(vol);
   };
 
+  // Virtual Instrument handlers (Piano / Synth + Electronic Drums)
+  const handleSynthNoteOn = useCallback(
+    async (midi: number, velocity = 0.85) => {
+      const ok = await ensureEngineStarted();
+      if (!ok) return;
+      engine.synthNoteOn(midi, velocity);
+    },
+    [ensureEngineStarted, engine]
+  );
+
+  const handleSynthNoteOff = useCallback(
+    (midi: number) => {
+      engine.synthNoteOff(midi);
+    },
+    [engine]
+  );
+
+  const handleSynthPresetChange = (preset: SynthVoicePreset) => {
+    setSynthPreset(preset);
+    engine.synthSetPreset(preset);
+  };
+
+  const handleSynthRoutingChange = (routing: InstrumentRouting) => {
+    setSynthRouting(routing);
+    engine.synthSetRouting(routing);
+    showToast(
+      routing === 'pedal-chain'
+        ? 'Teclado roteado pela Pedaleira (FX + Amp + Looper)'
+        : 'Teclado em saída limpa + Looper'
+    );
+  };
+
+  const handleSynthVolumeChange = (vol: number) => {
+    setSynthVolume(vol);
+    engine.synthSetVolume(vol);
+  };
+
+  const handleSynthSustainChange = useCallback(
+    (active: boolean) => {
+      setSynthSustain(active);
+      engine.synthSetSustain(active);
+    },
+    [engine]
+  );
+
+  const handleDrumTrigger = useCallback(
+    async (pad: DrumPadId, velocity = 0.92) => {
+      const ok = await ensureEngineStarted();
+      if (!ok) return;
+      engine.drumTrigger(pad, velocity);
+    },
+    [ensureEngineStarted, engine]
+  );
+
+  const handleDrumKitChange = (kit: DrumKitStyle) => {
+    setDrumKit(kit);
+    engine.drumSetKit(kit);
+  };
+
+  const handleDrumRoutingChange = (routing: DrumRouting) => {
+    setDrumRouting(routing);
+    engine.drumSetRouting(routing);
+    showToast(
+      routing === 'pedal-chain'
+        ? 'Bateria roteada pela Pedaleira (FX)'
+        : routing === 'clean-looper'
+        ? 'Bateria limpa entrando no Looper'
+        : 'Bateria limpa direto na saída (Base)'
+    );
+  };
+
+  const handleDrumVolumeChange = (vol: number) => {
+    setDrumVolume(vol);
+    engine.drumSetVolume(vol);
+  };
+
+  const handleDrumBpmChange = (bpm: number) => {
+    setDrumBpm(bpm);
+    engine.drumSetBpm(bpm);
+  };
+
+  const handleDrumPatternChange = (nextPattern: DrumPattern) => {
+    setDrumPattern(nextPattern);
+    engine.drumSetPattern(nextPattern);
+  };
+
+  const handleDrumToggleSeq = async () => {
+    const ok = await ensureEngineStarted();
+    if (!ok) return;
+    if (drumSeqRunning) {
+      engine.drumStopSequencer();
+      setDrumSeqRunning(false);
+      setDrumCurrentStep(-1);
+    } else {
+      engine.drumSetBpm(drumBpm);
+      engine.drumSetPattern(drumPattern);
+      engine.drumStartSequencer();
+      setDrumSeqRunning(true);
+    }
+  };
+
+  const handleDrumLoadGroove = (grooveKey: string) => {
+    const g = DRUM_GROOVES[grooveKey];
+    if (!g) return;
+    const cloned: DrumPattern = JSON.parse(JSON.stringify(g.pattern));
+    setDrumPattern(cloned);
+    setDrumBpm(g.bpm);
+    setDrumKit(g.kit);
+    engine.drumSetPattern(cloned);
+    engine.drumSetBpm(g.bpm);
+    engine.drumSetKit(g.kit);
+    showToast(`Groove carregado: ${g.label} (${g.bpm} BPM)`);
+  };
+
   // Execute MIDI Action
   const executeMidiTarget = useCallback(
     (target: MidiActionTarget) => {
@@ -640,13 +811,33 @@ export const App: React.FC = () => {
 
       const key = e.key.toLowerCase();
 
-      // 1-8 Presets
+      if (key === 'escape' && instrumentOpen && pcCaptureEnabled) {
+        e.preventDefault();
+        setPcCaptureEnabled(false);
+        engine.synthPanic();
+        showToast('Teclado voltou para atalhos da pedaleira');
+        return;
+      }
+
+      // 1-8 Presets always work
       if (key >= '1' && key <= '8') {
         const idx = Number(key) - 1;
         if (allPresets[idx]) {
           e.preventDefault();
           handleSelectPreset(allPresets[idx]);
         }
+        return;
+      }
+
+      // Spacebar Looper always works (super handy while playing piano/drums!)
+      if (e.code === 'Space') {
+        e.preventDefault();
+        handleLooperStomp();
+        return;
+      }
+
+      // When PC Keyboard is playing Piano or Drums, skip pedal letter shortcuts
+      if (instrumentOpen && pcCaptureEnabled) {
         return;
       }
 
@@ -666,10 +857,7 @@ export const App: React.FC = () => {
         return;
       }
 
-      if (e.code === 'Space') {
-        e.preventDefault();
-        handleLooperStomp();
-      } else if (key === 't') {
+      if (key === 't') {
         e.preventDefault();
         handleToggleTuner();
       } else if (key === 'm') {
@@ -683,7 +871,19 @@ export const App: React.FC = () => {
 
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [allPresets, handleSelectPreset, handleTogglePedal, handleLooperStomp, handleToggleTuner, handleToggleMetronome, cycleOutputMode]);
+  }, [
+    allPresets,
+    handleSelectPreset,
+    handleTogglePedal,
+    handleLooperStomp,
+    handleToggleTuner,
+    handleToggleMetronome,
+    cycleOutputMode,
+    instrumentOpen,
+    pcCaptureEnabled,
+    engine,
+    showToast
+  ]);
 
   return (
     <div className="app-shell">
@@ -761,6 +961,26 @@ export const App: React.FC = () => {
               }}
             />
           </div>
+
+          <button
+            type="button"
+            className={`btn-tool ${instrumentOpen ? 'is-active' : ''}`}
+            onClick={async () => {
+              if (!instrumentOpen) {
+                await ensureEngineStarted();
+                setInstrumentOpen(true);
+                setPcCaptureEnabled(true);
+                showToast('Modo Teclado / Bateria aberto! Toque pelas teclas A–L ou clique nos pads.');
+              } else {
+                setInstrumentOpen(false);
+                engine.synthPanic();
+              }
+            }}
+            title="Tocar Piano/Synth ou Bateria Eletrônica pelo teclado do PC"
+          >
+            <Keyboard size={16} />
+            <span>Teclado / Bateria</span>
+          </button>
 
           <button
             type="button"
@@ -846,6 +1066,52 @@ export const App: React.FC = () => {
         muted={tunerMuted}
         onToggleMute={handleToggleTunerMute}
         onClose={handleToggleTuner}
+      />
+
+      {/* VIRTUAL INSTRUMENT DECK: PIANO/SYNTH + ELECTRONIC DRUMS */}
+      <InstrumentDeck
+        isOpen={instrumentOpen}
+        activeTab={instrumentTab}
+        pcCaptureEnabled={pcCaptureEnabled}
+        onTabChange={(tab) => {
+          setInstrumentTab(tab);
+          engine.synthPanic();
+        }}
+        onTogglePcCapture={() => {
+          setPcCaptureEnabled((prev) => !prev);
+          engine.synthPanic();
+        }}
+        onClose={() => {
+          setInstrumentOpen(false);
+          engine.synthPanic();
+        }}
+        synthPreset={synthPreset}
+        synthRouting={synthRouting}
+        synthVolume={synthVolume}
+        octave={synthOctave}
+        sustain={synthSustain}
+        onSynthPresetChange={handleSynthPresetChange}
+        onSynthRoutingChange={handleSynthRoutingChange}
+        onSynthVolumeChange={handleSynthVolumeChange}
+        onOctaveChange={setSynthOctave}
+        onSustainChange={handleSynthSustainChange}
+        onNoteOn={handleSynthNoteOn}
+        onNoteOff={handleSynthNoteOff}
+        drumKit={drumKit}
+        drumRouting={drumRouting}
+        drumVolume={drumVolume}
+        drumBpm={drumBpm}
+        drumPattern={drumPattern}
+        drumSeqRunning={drumSeqRunning}
+        drumCurrentStep={drumCurrentStep}
+        onDrumKitChange={handleDrumKitChange}
+        onDrumRoutingChange={handleDrumRoutingChange}
+        onDrumVolumeChange={handleDrumVolumeChange}
+        onDrumBpmChange={handleDrumBpmChange}
+        onDrumTrigger={handleDrumTrigger}
+        onDrumPatternChange={handleDrumPatternChange}
+        onDrumToggleSeq={handleDrumToggleSeq}
+        onDrumLoadGroove={handleDrumLoadGroove}
       />
 
       {/* MAIN STUDIO WORKSPACE */}

@@ -9,8 +9,10 @@ import {
   TestRiffStyle,
   TunerReading
 } from '../types/pedalboard';
+import { DrumEngine, DrumKitStyle, DrumPadId, DrumPattern, DrumRouting } from './drumEngine';
 import { generateCabinetIR, generateReverbIR } from './irGenerator';
 import { MetronomeEngine } from './metronome';
+import { InstrumentRouting, SynthEngine, SynthVoicePreset } from './synthEngine';
 import { TestGuitarPlayer } from './testGuitar';
 import { detectPitch } from './tuner';
 import { makeAmpPreampCurve, makeDriveCurve } from './waveshaper';
@@ -27,6 +29,7 @@ export interface EngineTelemetryCallbacks {
   onGateStatus?: (isOpen: boolean, levelDb: number) => void;
   onLooperTelemetry?: (telemetry: LooperTelemetry) => void;
   onMetronomeBeat?: (beat: number, beatsPerBar: number) => void;
+  onDrumStep?: (step: number) => void;
 }
 
 export interface AudioDeviceList {
@@ -50,9 +53,11 @@ export class OpenPedalEngine {
   private tunerMuteGain: GainNode | null = null;
   private chainEntry: GainNode | null = null;
 
-  // Test guitar & Metronome
+  // Test guitar, Metronome, Synth & Drums
   private testGuitar: TestGuitarPlayer | null = null;
   private metronome: MetronomeEngine | null = null;
+  private synth: SynthEngine | null = null;
+  private drums: DrumEngine | null = null;
 
   // Pedals
   private pedals!: Record<PedalId, PedalModule>;
@@ -214,6 +219,12 @@ export class OpenPedalEngine {
     // Metronome goes straight to safetyLimiter (clean, un-distorted, not recorded into looper)
     this.metronome = new MetronomeEngine(this.ctx, this.safetyLimiter, (beat, total) => {
       this.callbacks.onMetronomeBeat?.(beat, total);
+    });
+
+    // Virtual Instruments: Piano/Synth (default clean into Looper) + Drum Machine (default clean out)
+    this.synth = new SynthEngine(this.ctx, this.looperWorklet);
+    this.drums = new DrumEngine(this.ctx, this.safetyLimiter, (step) => {
+      this.callbacks.onDrumStep?.(step);
     });
 
     this.initialized = true;
@@ -810,6 +821,80 @@ export class OpenPedalEngine {
     this.metronome?.setVolume(vol);
   }
 
+  // Piano / Synth Instrument controls
+  synthNoteOn(midi: number, velocity = 0.85) {
+    this.synth?.noteOn(midi, velocity);
+  }
+
+  synthNoteOff(midi: number) {
+    this.synth?.noteOff(midi);
+  }
+
+  synthSetPreset(preset: SynthVoicePreset) {
+    this.synth?.setPreset(preset);
+  }
+
+  synthSetVolume(vol: number) {
+    this.synth?.setVolume(vol);
+  }
+
+  synthSetSustain(active: boolean) {
+    this.synth?.setSustain(active);
+  }
+
+  synthSetRouting(routing: InstrumentRouting) {
+    if (!this.synth) return;
+    if (routing === 'pedal-chain' && this.chainEntry) {
+      this.synth.reconnect(this.chainEntry);
+    } else if (this.looperWorklet) {
+      this.synth.reconnect(this.looperWorklet);
+    }
+  }
+
+  synthPanic() {
+    this.synth?.panic();
+  }
+
+  // Drum Machine controls
+  drumTrigger(pad: DrumPadId, velocity = 0.9) {
+    this.drums?.trigger(pad, undefined, velocity);
+  }
+
+  drumSetKit(kit: DrumKitStyle) {
+    this.drums?.setKit(kit);
+  }
+
+  drumSetVolume(vol: number) {
+    this.drums?.setVolume(vol);
+  }
+
+  drumSetRouting(routing: DrumRouting) {
+    if (!this.drums) return;
+    if (routing === 'pedal-chain' && this.chainEntry) {
+      this.drums.reconnect(this.chainEntry);
+    } else if (routing === 'clean-looper' && this.looperWorklet) {
+      this.drums.reconnect(this.looperWorklet);
+    } else if (this.safetyLimiter) {
+      this.drums.reconnect(this.safetyLimiter);
+    }
+  }
+
+  drumSetBpm(bpm: number) {
+    this.drums?.setBpm(bpm);
+  }
+
+  drumSetPattern(pattern: DrumPattern) {
+    this.drums?.setPattern(pattern);
+  }
+
+  drumStartSequencer() {
+    this.drums?.startSequencer();
+  }
+
+  drumStopSequencer() {
+    this.drums?.stopSequencer();
+  }
+
   // Real-time Tuner & Metering
   getTunerReading(): TunerReading {
     if (!this.ctx || !this.inputAnalyser) {
@@ -860,6 +945,8 @@ export class OpenPedalEngine {
     this.stopLiveInput();
     this.testGuitar?.stopAll();
     this.metronome?.stop();
+    this.drums?.stopSequencer();
+    this.synth?.panic();
     if (this.ctx) {
       this.ctx.close();
       this.ctx = null;

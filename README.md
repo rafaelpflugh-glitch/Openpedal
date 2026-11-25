@@ -24,6 +24,8 @@ Pedaleira digital de guitarra em tempo real construída com **React + TypeScript
 - **Metrônomo** com Tap Tempo, compassos `4/4`, `3/4`, `6/8`, `2/4` e saída limpa fora do Looper
 - **Banco de Presets** com 6 timbres de fábrica, salvar/atualizar/excluir (salvo no navegador) e exportar/importar `.json`
 - **Guitarra de Teste Interna + Player de DI**: teste todos os timbres mesmo antes de plugar o cabo
+- **Modo Teclado Piano / Synth no Teclado do PC**: sintetizador polifônico com 6 timbres (`Grand Piano`, `Rhodes E-Piano`, `Órgão Rock`, `Synth Lead`, `Pad Atmosférico`, `Baixo Synth`), controle de oitava (`Z`/`X`), Sustain (`Shift`) e chave para tocar limpo no Looper ou passar pelos efeitos da pedaleira
+- **Modo Bateria Eletrônica + Sequenciador de 16 Passos**: 8 pads sintetizados (`A` a `K`), 2 kits (`Acoustic Rock` e `808 Eletrônica`) e grooves prontos (`Rock`, `Pop/Funk`, `Metal Pedal Duplo`, `808/Lo-Fi`) para acompanhar sua guitarra ou piano
 - **Controlador MIDI (Web MIDI Learn)** + **Atalhos de Teclado** completos
 
 ## Como rodar

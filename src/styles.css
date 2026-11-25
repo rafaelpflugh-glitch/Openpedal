@@ -1791,3 +1791,413 @@ kbd {
     grid-template-columns: repeat(3, 1fr);
   }
 }
+
+/* =========================================================
+   INSTRUMENT DECK: PIANO / SYNTH + ELECTRONIC DRUMS
+   ========================================================= */
+
+.instrument-deck {
+  margin: 14px 20px 0;
+  padding: 16px 18px;
+  border-radius: 16px;
+  background: linear-gradient(180deg, #161d2b 0%, #0f141e 100%);
+  border: 1px solid rgba(56, 189, 248, 0.35);
+  box-shadow: 0 14px 36px rgba(0, 0, 0, 0.45);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.instrument-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.instrument-tabs {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.inst-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 14px;
+  border-radius: 10px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-muted);
+  font-size: 0.82rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.inst-tab:hover {
+  color: var(--text-main);
+}
+
+.inst-tab.is-active {
+  background: linear-gradient(135deg, rgba(56, 189, 248, 0.2), rgba(249, 115, 22, 0.18));
+  border-color: var(--accent-sky);
+  color: #f8fafc;
+  box-shadow: 0 0 14px rgba(56, 189, 248, 0.22);
+}
+
+.instrument-header-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.inst-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+
+.voice-pills,
+.drum-top-left,
+.inst-controls-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.voice-pill {
+  padding: 6px 11px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-muted);
+  font-size: 0.76rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.14s ease;
+}
+
+.voice-pill:hover {
+  color: var(--text-main);
+}
+
+.voice-pill.is-active {
+  background: rgba(249, 115, 22, 0.18);
+  border-color: var(--accent-orange);
+  color: #ffedd5;
+}
+
+.octave-box {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 3px 6px;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.28);
+  border: 1px solid var(--border-subtle);
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.routing-switch {
+  display: inline-flex;
+  border-radius: 8px;
+  overflow: hidden;
+  border: 1px solid var(--border-subtle);
+  background: rgba(0, 0, 0, 0.3);
+}
+
+.routing-switch button {
+  padding: 6px 10px;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 0.74rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.routing-switch button.is-active {
+  background: rgba(56, 189, 248, 0.22);
+  color: #e0f2fe;
+}
+
+/* INTERACTIVE PIANO KEYBOARD */
+.piano-board-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.piano-keyboard {
+  position: relative;
+  width: 100%;
+  max-width: 960px;
+  margin: 0 auto;
+  height: 174px;
+  user-select: none;
+  border-radius: 12px;
+  padding: 6px;
+  background: #080b11;
+  border: 1px solid var(--border-strong);
+  box-shadow: inset 0 4px 14px rgba(0, 0, 0, 0.7);
+}
+
+.white-keys-row {
+  display: grid;
+  grid-template-columns: repeat(10, 1fr);
+  gap: 3px;
+  height: 100%;
+}
+
+.piano-key-white {
+  position: relative;
+  height: 100%;
+  border: none;
+  border-radius: 0 0 8px 8px;
+  background: linear-gradient(180deg, #f8fafc 0%, #e2e8f0 85%, #cbd5e1 100%);
+  color: #1e293b;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  padding-bottom: 10px;
+  gap: 2px;
+  cursor: pointer;
+  box-shadow: 0 3px 0 #94a3b8;
+  transition: transform 0.05s ease, background 0.06s ease;
+}
+
+.piano-key-white:hover {
+  background: linear-gradient(180deg, #ffffff 0%, #f1f5f9 100%);
+}
+
+.piano-key-white.is-pressed {
+  transform: translateY(3px);
+  box-shadow: 0 0 18px rgba(56, 189, 248, 0.6);
+  background: linear-gradient(180deg, #bae6fd 0%, #38bdf8 100%);
+  color: #082f49;
+}
+
+.black-keys-layer {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  right: 6px;
+  height: 60%;
+  pointer-events: none;
+}
+
+.piano-key-black {
+  position: absolute;
+  width: 6.4%;
+  height: 100%;
+  transform: translateX(-12%);
+  pointer-events: auto;
+  border: 1px solid #334155;
+  border-top: none;
+  border-radius: 0 0 7px 7px;
+  background: linear-gradient(180deg, #1e293b 0%, #0f172a 85%, #020617 100%);
+  color: #e2e8f0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  padding-bottom: 8px;
+  gap: 2px;
+  cursor: pointer;
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.65);
+  z-index: 3;
+  transition: transform 0.05s ease, background 0.06s ease;
+}
+
+.piano-key-black.is-pressed {
+  transform: translateX(-12%) translateY(3px);
+  background: linear-gradient(180deg, #fb923c 0%, #ea580c 100%);
+  border-color: #fdba74;
+  color: #fff;
+  box-shadow: 0 0 16px rgba(249, 115, 22, 0.7);
+}
+
+.piano-pc-badge {
+  font-size: 0.76rem;
+  font-weight: 800;
+  padding: 2px 6px;
+  border-radius: 5px;
+  background: rgba(15, 23, 42, 0.14);
+}
+
+.piano-key-black .piano-pc-badge {
+  background: rgba(255, 255, 255, 0.12);
+  font-size: 0.7rem;
+}
+
+.piano-note-tag {
+  font-size: 0.64rem;
+  font-weight: 700;
+  opacity: 0.72;
+}
+
+.inst-hint {
+  margin: 0;
+  text-align: center;
+  font-size: 0.76rem;
+  color: var(--text-muted);
+}
+
+/* ELECTRONIC DRUM PADS & 16-STEP SEQUENCER */
+.drum-pads-grid {
+  display: grid;
+  grid-template-columns: repeat(8, 1fr);
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.drum-pad {
+  position: relative;
+  padding: 12px 8px;
+  border-radius: 12px;
+  background: linear-gradient(165deg, #1f2736 0%, #121722 100%);
+  border: 1.5px solid rgba(148, 163, 184, 0.2);
+  color: var(--text-main);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  cursor: pointer;
+  user-select: none;
+  transition: transform 0.05s ease, border-color 0.08s ease;
+}
+
+.drum-pad:active,
+.drum-pad.is-hit {
+  transform: scale(0.95);
+}
+
+.drum-pad-key {
+  position: absolute;
+  top: 6px;
+  left: 8px;
+  font-size: 0.68rem;
+  font-weight: 800;
+  opacity: 0.95;
+}
+
+.drum-pad strong {
+  font-size: 0.85rem;
+  letter-spacing: 0.05em;
+  margin-top: 6px;
+}
+
+.drum-pad-sub {
+  font-size: 0.63rem;
+  color: var(--text-muted);
+  text-align: center;
+}
+
+.sequencer-box {
+  background: rgba(0, 0, 0, 0.28);
+  border: 1px solid var(--border-subtle);
+  border-radius: 12px;
+  padding: 12px;
+}
+
+.sequencer-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+
+.groove-btns {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.seq-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  overflow-x: auto;
+}
+
+.seq-row {
+  display: grid;
+  grid-template-columns: 82px 1fr;
+  align-items: center;
+  gap: 8px;
+  min-width: 600px;
+}
+
+.seq-row-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--border-subtle);
+  color: #cbd5e1;
+  border-radius: 6px;
+  padding: 4px 7px;
+  font-size: 0.68rem;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.seq-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+}
+
+.seq-steps {
+  display: grid;
+  grid-template-columns: repeat(16, 1fr);
+  gap: 4px;
+}
+
+.seq-cell {
+  height: 22px;
+  border-radius: 5px;
+  background: #171e2c;
+  border: 1px solid rgba(148, 163, 184, 0.14);
+  cursor: pointer;
+  transition: transform 0.06s ease, filter 0.06s ease;
+}
+
+.seq-cell.is-beat {
+  background: #202a3d;
+}
+
+.seq-cell:hover {
+  border-color: rgba(255, 255, 255, 0.4);
+}
+
+.seq-cell.is-on {
+  box-shadow: 0 0 8px rgba(255, 255, 255, 0.18);
+}
+
+.seq-cell.is-now {
+  outline: 2px solid #f8fafc;
+  outline-offset: -1px;
+  filter: brightness(1.3);
+}
+
+@media (max-width: 900px) {
+  .drum-pads-grid {
+    grid-template-columns: repeat(4, 1fr);
+  }
+}
