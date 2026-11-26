@@ -651,13 +651,24 @@ select {
   font-size: 0.72rem;
 }
 
-/* PEDALBOARD GRID */
+/* PEDALBOARD GRID: 2 sleek rows of 6 legendary stompboxes on desktop */
 .pedalboard-grid {
   display: grid;
-  grid-template-columns: repeat(7, minmax(172px, 1fr));
+  grid-template-columns: repeat(6, minmax(172px, 1fr));
   gap: 12px;
-  overflow-x: auto;
   padding-bottom: 6px;
+}
+
+@media (max-width: 1180px) {
+  .pedalboard-grid {
+    grid-template-columns: repeat(4, minmax(168px, 1fr));
+  }
+}
+
+@media (max-width: 780px) {
+  .pedalboard-grid {
+    grid-template-columns: repeat(2, minmax(156px, 1fr));
+  }
 }
 
 .pedal-card {
@@ -821,6 +832,10 @@ select {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: 4px;
+}
+
+.mode-pills.four-col {
+  grid-template-columns: repeat(4, 1fr);
 }
 
 .mode-pill {

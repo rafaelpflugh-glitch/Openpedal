@@ -68,13 +68,18 @@ export const MidiModal: React.FC<MidiModalProps> = ({
             </div>
             <div className="shortcut-table">
               <div><kbd>1</kbd> – <kbd>8</kbd><span>Trocar entre os Presets 1 a 8</span></div>
-              <div><kbd>Q</kbd><span>Ligar / Desligar Noise Gate</span></div>
-              <div><kbd>W</kbd><span>Ligar / Desligar Compressor</span></div>
-              <div><kbd>E</kbd><span>Ligar / Desligar Overdrive / Distortion</span></div>
-              <div><kbd>R</kbd><span>Ligar / Desligar 5-Band EQ</span></div>
-              <div><kbd>Y</kbd><span>Ligar / Desligar Chorus</span></div>
-              <div><kbd>U</kbd><span>Ligar / Desligar Delay</span></div>
-              <div><kbd>I</kbd><span>Ligar / Desligar Reverb</span></div>
+              <div><kbd>Q</kbd><span>Noise Gate</span></div>
+              <div><kbd>W</kbd><span>Compressor Óptico</span></div>
+              <div><kbd>E</kbd><span>Cry Baby / Auto-Wah</span></div>
+              <div><kbd>R</kbd><span>Octaver (-1 / +1)</span></div>
+              <div><kbd>A</kbd><span>Drive (Klon Centaur / TS9 / DS-1 / RAT)</span></div>
+              <div><kbd>S</kbd><span>Fuzz (Big Muff Pi / Fuzz Face / Super Fuzz)</span></div>
+              <div><kbd>D</kbd><span>5-Band Graphic EQ</span></div>
+              <div><kbd>F</kbd><span>Phase 90 Phaser</span></div>
+              <div><kbd>G</kbd><span>Opto-Tremolo</span></div>
+              <div><kbd>Y</kbd><span>Chorus 3D Estéreo</span></div>
+              <div><kbd>U</kbd><span>Ping-Pong Delay Estéreo</span></div>
+              <div><kbd>I</kbd><span>Reverb Hall / Catedral</span></div>
               <div><kbd>Espaço</kbd><span>Looper (Gravar → Tocar → Overdub)</span></div>
               <div><kbd>T</kbd><span>Abrir / Fechar Afinador Cromático</span></div>
               <div><kbd>M</kbd><span>Ligar / Parar Metrônomo</span></div>

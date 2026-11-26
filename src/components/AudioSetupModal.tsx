@@ -174,9 +174,10 @@ export const AudioSetupModal: React.FC<AudioSetupModalProps> = ({
                 value={testRiffStyle}
                 onChange={(e) => onTestRiffStyleChange(e.target.value as TestRiffStyle)}
               >
-                <option value="clean-arpeggio">Arpejo Clean (Em - C - G - D)</option>
-                <option value="blues-lick">Blues Shuffle em Lá</option>
+                <option value="clean-arpeggio">Arpejo Clean Strat (Em9 - Cmaj7 - G - D)</option>
+                <option value="blues-lick">Blues Shuffle c/ Vibrato em Lá</option>
                 <option value="rock-power">Power Chords Rock Clássico</option>
+                <option value="gilmour-lead">Solo Sustentado c/ Vibrato (p/ Big Muff & Wah)</option>
                 <option value="metal-chug">Palm-Mute Metal em Mi</option>
               </select>
             </div>

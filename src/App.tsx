@@ -14,7 +14,7 @@ import {
   Square,
   Volume2
 } from 'lucide-react';
-import { AudioDeviceList, OpenPedalEngine } from './audio/OpenPedalEngine';
+import { AudioDeviceList, FX_LOOP_SPLIT_INDEX, OpenPedalEngine } from './audio/OpenPedalEngine';
 import {
   DRUM_GROOVES,
   DrumKitStyle,
@@ -35,7 +35,7 @@ import { PresetBar } from './components/PresetBar';
 import { RotaryKnob } from './components/RotaryKnob';
 import { TunerBar } from './components/TunerBar';
 import { VuMeter } from './components/VuMeter';
-import { FACTORY_PRESETS } from './data/factoryPresets';
+import { FACTORY_PRESETS, migrateRig } from './data/factoryPresets';
 import {
   AmpCabState,
   InputChannelMode,
@@ -62,7 +62,8 @@ function loadUserPresets(): Preset[] {
     const raw = localStorage.getItem(STORAGE_PRESETS_KEY);
     if (!raw) return [];
     const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : [];
+    if (!Array.isArray(parsed)) return [];
+    return parsed.map((p: Preset) => ({ ...p, rig: migrateRig(p.rig) }));
   } catch {
     return [];
   }
@@ -94,8 +95,8 @@ export const App: React.FC = () => {
   // Presets & Rig State
   const [userPresets, setUserPresets] = useState<Preset[]>(() => loadUserPresets());
   const allPresets = useMemo(() => [...FACTORY_PRESETS, ...userPresets], [userPresets]);
-  const [activePresetId, setActivePresetId] = useState<string>(FACTORY_PRESETS[2].id); // Classic Rock default
-  const [rig, setRig] = useState<RigState>(() => cloneRig(FACTORY_PRESETS[2].rig));
+  const [activePresetId, setActivePresetId] = useState<string>(FACTORY_PRESETS[0].id); // Clean Studio default
+  const [rig, setRig] = useState<RigState>(() => cloneRig(FACTORY_PRESETS[0].rig));
   const [isDirty, setIsDirty] = useState(false);
 
   // Audio Engine State
@@ -109,7 +110,7 @@ export const App: React.FC = () => {
   const [latencyInfo, setLatencyInfo] = useState({ baseLatencyMs: 0, outputLatencyMs: 0, sampleRate: 48000 });
 
   // Test Guitar & DI
-  const [testRiffStyle, setTestRiffStyle] = useState<TestRiffStyle>('rock-power');
+  const [testRiffStyle, setTestRiffStyle] = useState<TestRiffStyle>('clean-arpeggio');
   const [testRiffPlaying, setTestRiffPlaying] = useState(false);
   const [diFileName, setDiFileName] = useState('');
   const [diFilePlaying, setDiFilePlaying] = useState(false);
@@ -550,12 +551,13 @@ export const App: React.FC = () => {
         const imported: Preset[] = parsed.presets.map((p: Preset, idx: number) => ({
           ...p,
           id: `imp-${Date.now()}-${idx}`,
-          factory: false
+          factory: false,
+          rig: migrateRig(p.rig)
         }));
         setUserPresets((prev) => [...prev, ...imported]);
         showToast(`${imported.length} preset(s) importado(s)!`);
       } else if (parsed.currentRig) {
-        setRig(cloneRig(parsed.currentRig));
+        setRig(migrateRig(parsed.currentRig));
         setIsDirty(true);
         showToast('Rig importado com sucesso!');
       }
@@ -841,12 +843,17 @@ export const App: React.FC = () => {
         return;
       }
 
-      // Pedal toggles
+      // Pedal toggles (12 stompboxes!)
       const shortcutMap: Record<string, PedalId> = {
         q: 'gate',
         w: 'compressor',
-        e: 'drive',
-        r: 'eq',
+        e: 'wah',
+        r: 'octaver',
+        a: 'drive',
+        s: 'fuzz',
+        d: 'eq',
+        f: 'phaser',
+        g: 'tremolo',
         y: 'chorus',
         u: 'delay',
         i: 'reverb'
@@ -934,8 +941,21 @@ export const App: React.FC = () => {
                 title="Tocar guitarra simulada interna para testar timbres sem plugar"
               >
                 {testRiffPlaying ? <Square size={14} /> : <Play size={14} />}
-                <span>{testRiffPlaying ? 'Parar Teste' : 'Testar Riff'}</span>
+                <span>{testRiffPlaying ? 'Parar Riff' : 'Testar Riff'}</span>
               </button>
+
+              <select
+                className="compact-select"
+                value={testRiffStyle}
+                onChange={(e) => handleTestRiffStyleChange(e.target.value as TestRiffStyle)}
+                title="Escolher estilo da guitarra de teste"
+              >
+                <option value="clean-arpeggio">Riff: Clean Arpejo</option>
+                <option value="blues-lick">Riff: Blues c/ Vibrato</option>
+                <option value="rock-power">Riff: Rock Power</option>
+                <option value="gilmour-lead">Riff: Solo Sustentado (Fuzz)</option>
+                <option value="metal-chug">Riff: Metal Palm-Mute</option>
+              </select>
             </>
           )}
 
@@ -1123,7 +1143,7 @@ export const App: React.FC = () => {
               <span className="section-eyebrow">CADEIA DE PEDAIS (ARRASTE OU USE AS SETAS PARA REORDENAR)</span>
               <div className="signal-flow-tags">
                 <span className="flow-pill">ENTRADA ({liveActive ? 'AO VIVO' : testRiffPlaying ? 'RIFF TESTE' : diFilePlaying ? 'ÁUDIO DI' : 'PRONTO'})</span>
-                {rig.chainOrder.map((id) => (
+                {rig.chainOrder.slice(0, FX_LOOP_SPLIT_INDEX).map((id) => (
                   <React.Fragment key={id}>
                     <span className="flow-arrow">→</span>
                     <span className={`flow-pill ${rig.pedals[id].enabled ? 'is-on' : ''}`}>
@@ -1134,25 +1154,55 @@ export const App: React.FC = () => {
                 <span className="flow-arrow">→</span>
                 <span className="flow-pill is-amp">
                   {rig.outputMode === 'home-theater'
-                    ? 'AMP + CAB SIM (HOME THEATER)'
+                    ? 'AMP + CAB SIM'
                     : rig.outputMode === 'amp-return'
-                    ? 'AMP PRE (FX RETURN)'
-                    : 'SAÍDA DIRETA (FRENTE AMP)'}
+                    ? 'AMP PRE (FX RET)'
+                    : 'AMP BYPASS'}
                 </span>
+                {rig.chainOrder.slice(FX_LOOP_SPLIT_INDEX).map((id) => (
+                  <React.Fragment key={id}>
+                    <span className="flow-arrow">→</span>
+                    <span className={`flow-pill ${rig.pedals[id].enabled ? 'is-on' : ''}`}>
+                      {PEDAL_META[id].title} (ST)
+                    </span>
+                  </React.Fragment>
+                ))}
+                <span className="flow-arrow">→</span>
+                <span className="flow-pill">LOOPER / SAÍDA</span>
               </div>
             </div>
-            <button
-              type="button"
-              className="btn-chip"
-              onClick={async () => {
-                await ensureEngineStarted();
-                await refreshDevices();
-                setAudioModalOpen(true);
-              }}
-            >
-              <Settings size={13} />
-              <span>Ganho Entrada: {rig.inputGainDb > 0 ? `+${rig.inputGainDb}` : rig.inputGainDb} dB</span>
-            </button>
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+              <button
+                type="button"
+                className="btn-chip"
+                onClick={() => {
+                  setRig((prev) => {
+                    const cleared = { ...prev.pedals };
+                    (Object.keys(cleared) as PedalId[]).forEach((pid) => {
+                      cleared[pid] = { ...cleared[pid], enabled: false } as never;
+                    });
+                    return { ...prev, pedals: cleared };
+                  });
+                  setIsDirty(true);
+                  showToast('Todos os pedais em BYPASS — ouvindo apenas guitarra limpa + Amp');
+                }}
+                title="Desliga todos os pedais para ouvir o sinal limpo e ir ligando um por um"
+              >
+                <span>Bypass Todos Pedais</span>
+              </button>
+              <button
+                type="button"
+                className="btn-chip"
+                onClick={async () => {
+                  await ensureEngineStarted();
+                  await refreshDevices();
+                  setAudioModalOpen(true);
+                }}
+              >
+                <Settings size={13} />
+                <span>Ganho Entrada: {rig.inputGainDb > 0 ? `+${rig.inputGainDb}` : rig.inputGainDb} dB</span>
+              </button>
+            </div>
           </div>
 
           <div className="pedalboard-grid">
