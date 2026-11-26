@@ -9,7 +9,13 @@ import {
   DrumRouting,
   createEmptyPattern
 } from '../audio/drumEngine';
-import { InstrumentRouting, SynthVoicePreset } from '../audio/synthEngine';
+import {
+  INSTRUMENT_CATEGORIES,
+  InstrumentCategory,
+  InstrumentRouting,
+  SYNTH_VOICE_CATALOG,
+  SynthVoicePreset
+} from '../audio/synthEngine';
 
 export type InstrumentTab = 'piano' | 'drums';
 
@@ -42,15 +48,6 @@ const PIANO_KEYS: PianoKeyDef[] = [
   { semitone: 16, noteName: 'E', isBlack: false, pcKeys: ['ç', ';'], displayKey: 'Ç', whiteIndex: 9 }
 ];
 
-const SYNTH_PRESETS: { id: SynthVoicePreset; label: string }[] = [
-  { id: 'grand-piano', label: 'Grand Piano' },
-  { id: 'rhodes-ep', label: 'Rhodes E-Piano' },
-  { id: 'rock-organ', label: 'Órgão Rock' },
-  { id: 'synth-lead', label: 'Synth Lead' },
-  { id: 'warm-pad', label: 'Pad Atmosférico' },
-  { id: 'synth-bass', label: 'Baixo Synth' }
-];
-
 const WHITE_KEYS = PIANO_KEYS.filter((k) => !k.isBlack);
 const BLACK_KEYS = PIANO_KEYS.filter((k) => k.isBlack);
 
@@ -68,11 +65,13 @@ interface InstrumentDeckProps {
   synthVolume: number;
   octave: number;
   sustain: boolean;
+  autoVibrato: boolean;
   onSynthPresetChange: (preset: SynthVoicePreset) => void;
   onSynthRoutingChange: (routing: InstrumentRouting) => void;
   onSynthVolumeChange: (vol: number) => void;
   onOctaveChange: (oct: number) => void;
   onSustainChange: (sustain: boolean) => void;
+  onAutoVibratoChange: (enabled: boolean) => void;
   onNoteOn: (midi: number, velocity?: number) => void;
   onNoteOff: (midi: number) => void;
 
@@ -106,11 +105,13 @@ export const InstrumentDeck: React.FC<InstrumentDeckProps> = ({
   synthVolume,
   octave,
   sustain,
+  autoVibrato,
   onSynthPresetChange,
   onSynthRoutingChange,
   onSynthVolumeChange,
   onOctaveChange,
   onSustainChange,
+  onAutoVibratoChange,
   onNoteOn,
   onNoteOff,
   drumKit,
@@ -131,8 +132,15 @@ export const InstrumentDeck: React.FC<InstrumentDeckProps> = ({
 }) => {
   const [pressedMidis, setPressedMidis] = useState<Set<number>>(new Set());
   const [litPads, setLitPads] = useState<Set<DrumPadId>>(new Set());
+  const [selectedCategory, setSelectedCategory] = useState<InstrumentCategory>(() => {
+    const found = SYNTH_VOICE_CATALOG.find((v) => v.id === synthPreset);
+    return found ? found.category : 'keys';
+  });
   const keyToMidiRef = useRef<Map<string, number>>(new Map());
   const padTimersRef = useRef<Map<DrumPadId, number>>(new Map());
+
+  const activeVoiceDef = SYNTH_VOICE_CATALOG.find((v) => v.id === synthPreset);
+  const categoryVoices = SYNTH_VOICE_CATALOG.filter((v) => v.category === selectedCategory);
 
   const baseMidi = (octave + 1) * 12; // octave 4 => C4 = 60
 
@@ -323,12 +331,37 @@ export const InstrumentDeck: React.FC<InstrumentDeckProps> = ({
         </div>
       </div>
 
-      {/* PIANO / SYNTH VIEW */}
+      {/* PIANO / WORKSTATION VIEW */}
       {activeTab === 'piano' ? (
         <div className="piano-section">
+          {/* Category Tabs (Workstation style) */}
+          <div className="voice-category-bar">
+            <div className="category-tabs">
+              {INSTRUMENT_CATEGORIES.map((cat) => (
+                <button
+                  key={cat.id}
+                  type="button"
+                  className={`cat-tab ${selectedCategory === cat.id ? 'is-active' : ''}`}
+                  onClick={() => {
+                    setSelectedCategory(cat.id);
+                    const firstInCat = SYNTH_VOICE_CATALOG.find((v) => v.category === cat.id);
+                    if (firstInCat && activeVoiceDef?.category !== cat.id) {
+                      onSynthPresetChange(firstInCat.id);
+                    }
+                  }}
+                >
+                  {cat.label}
+                </button>
+              ))}
+            </div>
+            {activeVoiceDef?.hint && (
+              <span className="voice-hint-pill">{activeVoiceDef.hint}</span>
+            )}
+          </div>
+
           <div className="inst-toolbar">
             <div className="voice-pills">
-              {SYNTH_PRESETS.map((p) => (
+              {categoryVoices.map((p) => (
                 <button
                   key={p.id}
                   type="button"
@@ -353,11 +386,20 @@ export const InstrumentDeck: React.FC<InstrumentDeckProps> = ({
 
               <button
                 type="button"
+                className={`btn-chip ${autoVibrato ? 'is-accent' : ''}`}
+                onClick={() => onAutoVibratoChange(!autoVibrato)}
+                title="Vibrato expressivo automático ao segurar notas (Sax, Trompete, Trombone, Flauta, Violino, Guitarra)"
+              >
+                Vibrato: {autoVibrato ? 'ON' : 'OFF'}
+              </button>
+
+              <button
+                type="button"
                 className={`btn-chip ${sustain ? 'is-amber' : ''}`}
                 onClick={() => onSustainChange(!sustain)}
                 title="Segure SHIFT no teclado ou clique aqui para manter as notas soando"
               >
-                Sustain (Shift): {sustain ? 'ON' : 'OFF'}
+                Sustain: {sustain ? 'ON' : 'OFF'}
               </button>
 
               <div className="routing-switch">
@@ -373,7 +415,7 @@ export const InstrumentDeck: React.FC<InstrumentDeckProps> = ({
                   type="button"
                   className={synthRouting === 'pedal-chain' ? 'is-active' : ''}
                   onClick={() => onSynthRoutingChange('pedal-chain')}
-                  title="Passa o teclado pelos pedais (Overdrive, Chorus, Delay, Reverb) e Amp!"
+                  title="Passa o instrumento pelos 12 pedais (Klon, Big Muff, Wah, Chorus, Delay, Reverb) e Amp!"
                 >
                   Via Pedaleira (FX)
                 </button>

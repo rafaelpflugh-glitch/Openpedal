@@ -1265,6 +1265,10 @@ export class OpenPedalEngine {
     this.synth?.setSustain(active);
   }
 
+  synthSetAutoVibrato(enabled: boolean) {
+    this.synth?.setAutoVibrato(enabled);
+  }
+
   synthSetRouting(routing: InstrumentRouting) {
     if (!this.synth) return;
     if (routing === 'pedal-chain' && this.chainEntry) {

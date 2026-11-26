@@ -148,6 +148,7 @@ export const App: React.FC = () => {
   const [synthVolume, setSynthVolume] = useState(0.7);
   const [synthOctave, setSynthOctave] = useState(4);
   const [synthSustain, setSynthSustain] = useState(false);
+  const [synthAutoVibrato, setSynthAutoVibrato] = useState(true);
 
   const [drumKit, setDrumKit] = useState<DrumKitStyle>('acoustic-rock');
   const [drumRouting, setDrumRouting] = useState<DrumRouting>('direct-clean');
@@ -232,6 +233,7 @@ export const App: React.FC = () => {
         engine.synthSetPreset(synthPreset);
         engine.synthSetVolume(synthVolume);
         engine.synthSetRouting(synthRouting);
+        engine.synthSetAutoVibrato(synthAutoVibrato);
         engine.drumSetKit(drumKit);
         engine.drumSetVolume(drumVolume);
         engine.drumSetRouting(drumRouting);
@@ -1110,11 +1112,16 @@ export const App: React.FC = () => {
         synthVolume={synthVolume}
         octave={synthOctave}
         sustain={synthSustain}
+        autoVibrato={synthAutoVibrato}
         onSynthPresetChange={handleSynthPresetChange}
         onSynthRoutingChange={handleSynthRoutingChange}
         onSynthVolumeChange={handleSynthVolumeChange}
         onOctaveChange={setSynthOctave}
         onSustainChange={handleSynthSustainChange}
+        onAutoVibratoChange={(enabled) => {
+          setSynthAutoVibrato(enabled);
+          engine.synthSetAutoVibrato(enabled);
+        }}
         onNoteOn={handleSynthNoteOn}
         onNoteOff={handleSynthNoteOff}
         drumKit={drumKit}
