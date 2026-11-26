@@ -71,15 +71,18 @@ export const MidiModal: React.FC<MidiModalProps> = ({
               <div><kbd>Q</kbd><span>Noise Gate</span></div>
               <div><kbd>W</kbd><span>Compressor Óptico</span></div>
               <div><kbd>E</kbd><span>Cry Baby / Auto-Wah</span></div>
+              <div><kbd>Z</kbd><span>Whammy / Pitch Shifter</span></div>
               <div><kbd>R</kbd><span>Octaver (-1 / +1)</span></div>
               <div><kbd>A</kbd><span>Drive (Klon Centaur / TS9 / DS-1 / RAT)</span></div>
               <div><kbd>S</kbd><span>Fuzz (Big Muff Pi / Fuzz Face / Super Fuzz)</span></div>
               <div><kbd>D</kbd><span>5-Band Graphic EQ</span></div>
               <div><kbd>F</kbd><span>Phase 90 Phaser</span></div>
+              <div><kbd>X</kbd><span>Jet Flanger (Electric Mistress)</span></div>
+              <div><kbd>C</kbd><span>Uni-Vibe / Rotary Leslie</span></div>
               <div><kbd>G</kbd><span>Opto-Tremolo</span></div>
               <div><kbd>Y</kbd><span>Chorus 3D Estéreo</span></div>
               <div><kbd>U</kbd><span>Ping-Pong Delay Estéreo</span></div>
-              <div><kbd>I</kbd><span>Reverb Hall / Catedral</span></div>
+              <div><kbd>I</kbd><span>Reverb (Hall / Spring / Shimmer)</span></div>
               <div><kbd>Espaço</kbd><span>Looper (Gravar → Tocar → Overdub)</span></div>
               <div><kbd>T</kbd><span>Abrir / Fechar Afinador Cromático</span></div>
               <div><kbd>M</kbd><span>Ligar / Parar Metrônomo</span></div>

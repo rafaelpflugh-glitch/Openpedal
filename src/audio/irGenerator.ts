@@ -1,16 +1,14 @@
-import { CabModel } from '../types/pedalboard';
+import { CabModel, ReverbMode } from '../types/pedalboard';
 
 /**
- * Generates clean, warm, ZERO-comb-filter minimum-phase Guitar Cabinet Impulse Responses.
- * Real mic'd guitar speakers (SM57 on 4x12 V30 / 2x12 Twin / 1x12 Tweed) have a steep, smooth
- * 4th-order speaker cone roll-off around 4-5.5 kHz that turns distortion creamy and natural
- * on a Home Theater or headphones — WITHOUT metallic tin-can echoes.
+ * Generates clean, warm, ZERO-comb-filter minimum-phase Guitar Cabinet Impulse Responses
+ * with studio SM57 fizz-taming notch and 24dB/oct cone rolloff.
  */
 export async function generateCabinetIR(
   sampleRate: number,
   model: Exclude<CabModel, 'custom-ir'>
 ): Promise<AudioBuffer> {
-  const length = Math.floor(sampleRate * 0.032); // Clean 32ms minimum-phase speaker IR
+  const length = Math.floor(sampleRate * 0.032);
   const offline = new OfflineAudioContext(2, length, sampleRate);
 
   const impulse = offline.createBuffer(2, length, sampleRate);
@@ -32,7 +30,12 @@ export async function generateCabinetIR(
   const upperPresence = offline.createBiquadFilter();
   upperPresence.type = 'peaking';
 
-  // 2 cascaded lowpass filters = authentic 24dB/oct guitar speaker cone roll-off (eliminates ALL digital fizz!)
+  const fizzNotch = offline.createBiquadFilter();
+  fizzNotch.type = 'peaking';
+  fizzNotch.frequency.value = model === '1x12-tweed' ? 3100 : 3850;
+  fizzNotch.Q.value = 2.6;
+  fizzNotch.gain.value = model === '4x10-clean' ? -1.0 : -4.2;
+
   const coneLpf1 = offline.createBiquadFilter();
   coneLpf1.type = 'lowpass';
 
@@ -40,7 +43,6 @@ export async function generateCabinetIR(
   coneLpf2.type = 'lowpass';
 
   if (model === '4x12-v30') {
-    // Mesa / Marshall 4x12 Celestion V30: deep tight 110Hz punch, smooth 2.2kHz voice, silky 4.2kHz rolloff
     hpf.frequency.value = 78;
     hpf.Q.value = 0.85;
     lowBody.frequency.value = 115;
@@ -57,7 +59,6 @@ export async function generateCabinetIR(
     coneLpf2.frequency.value = 4500;
     coneLpf2.Q.value = 0.7;
   } else if (model === '2x12-open') {
-    // Fender Twin 2x12 Open Back: warm open clean chime, smooth 5.4kHz sparkle
     hpf.frequency.value = 82;
     hpf.Q.value = 0.7;
     lowBody.frequency.value = 135;
@@ -74,7 +75,6 @@ export async function generateCabinetIR(
     coneLpf2.frequency.value = 5800;
     coneLpf2.Q.value = 0.7;
   } else if (model === '1x12-tweed') {
-    // Vintage 1x12 Tweed Combo: warm bluesy woody mids, velvety 3.4kHz rolloff
     hpf.frequency.value = 110;
     hpf.Q.value = 0.75;
     lowBody.frequency.value = 175;
@@ -91,7 +91,6 @@ export async function generateCabinetIR(
     coneLpf2.frequency.value = 3800;
     coneLpf2.Q.value = 0.7;
   } else {
-    // 4x10 Wide Studio Clean
     hpf.frequency.value = 60;
     hpf.Q.value = 0.7;
     lowBody.frequency.value = 110;
@@ -109,13 +108,6 @@ export async function generateCabinetIR(
     coneLpf2.Q.value = 0.7;
   }
 
-  // Studio SM57 fizz-taming dip (~3.8kHz) removes harsh digital buzz while preserving guitar bite!
-  const fizzNotch = offline.createBiquadFilter();
-  fizzNotch.type = 'peaking';
-  fizzNotch.frequency.value = model === '1x12-tweed' ? 3100 : 3850;
-  fizzNotch.Q.value = 2.6;
-  fizzNotch.gain.value = model === '4x10-clean' ? -1.0 : -4.2;
-
   src.connect(hpf);
   hpf.connect(lowBody);
   lowBody.connect(midShape);
@@ -128,14 +120,11 @@ export async function generateCabinetIR(
   src.start(0);
   const rendered = await offline.startRendering();
 
-  // Calibrate IR to exact unity energy
   let maxEnergy = 0;
   for (let ch = 0; ch < rendered.numberOfChannels; ch++) {
     const data = rendered.getChannelData(ch);
     let sumSq = 0;
-    for (let i = 0; i < data.length; i++) {
-      sumSq += data[i] * data[i];
-    }
+    for (let i = 0; i < data.length; i++) sumSq += data[i] * data[i];
     maxEnergy = Math.max(maxEnergy, Math.sqrt(sumSq));
   }
 
@@ -143,9 +132,7 @@ export async function generateCabinetIR(
     const scale = 0.92 / maxEnergy;
     for (let ch = 0; ch < rendered.numberOfChannels; ch++) {
       const data = rendered.getChannelData(ch);
-      for (let i = 0; i < data.length; i++) {
-        data[i] *= scale;
-      }
+      for (let i = 0; i < data.length; i++) data[i] *= scale;
     }
   }
 
@@ -153,64 +140,103 @@ export async function generateCabinetIR(
 }
 
 /**
- * Generates a warm, silky True Stereo Hall/Plate Reverb Impulse Response (Lexicon/Strymon style)
- * with smooth onset, progressive darkening, and unity RMS normalization (zero metallic hiss!).
+ * Generates 3 distinct Reverb Impulse Responses:
+ * - 'hall': silky velvety stereo concert hall / cathedral
+ * - 'spring': classic Fender Twin / Surf Rock metallic bouncy spring tank!
+ * - 'shimmer': wide airy cathedral tail tuned to bloom with octave-up shimmer pitch!
  */
 export function generateReverbIR(
   ctx: BaseAudioContext,
+  mode: ReverbMode,
   decaySec: number,
   dampeningPct: number
 ): AudioBuffer {
   const sr = ctx.sampleRate;
-  const rt60 = Math.max(0.35, Math.min(7.5, decaySec));
+  const rt60 = Math.max(0.35, Math.min(7.5, mode === 'spring' ? Math.min(3.5, decaySec) : decaySec));
   const length = Math.floor(sr * (rt60 + 0.15));
   const buffer = ctx.createBuffer(2, length, sr);
 
-  const damp = Math.max(0.12, Math.min(0.95, dampeningPct / 100));
+  const damp = Math.max(0.1, Math.min(0.95, dampeningPct / 100));
   const decayRate = 6.907755 / rt60;
 
   for (let ch = 0; ch < 2; ch++) {
     const data = buffer.getChannelData(ch);
-    const preDelay = Math.floor(sr * (ch === 0 ? 0.016 : 0.023));
-    const bloomSamples = Math.floor(sr * 0.045);
 
-    let lp1 = 0;
-    let lp2 = 0;
-    let lp3 = 0;
-    let hpPrevIn = 0;
-    let hpPrevOut = 0;
+    if (mode === 'spring') {
+      // Authentic Fender Twin Spring Tank: rhythmic spring drip reflections + resonant metallic chirp!
+      const springPeriodMs = ch === 0 ? 31.5 : 34.2;
+      const springPeriodSamples = Math.floor((springPeriodMs / 1000) * sr);
+      let lp1 = 0;
+      let lp2 = 0;
+      let hpIn = 0;
+      let hpOut = 0;
 
-    for (let i = preDelay; i < length; i++) {
-      const tSec = (i - preDelay) / sr;
-      const bloom = Math.min(1, (i - preDelay) / bloomSamples);
-      const env = bloom * Math.exp(-decayRate * tSec);
+      for (let i = 0; i < length; i++) {
+        const t = i / sr;
+        const env = Math.exp(-decayRate * t);
+        // Spring metallic flutter modulation
+        const drip = 0.65 + 0.35 * Math.sin((2 * Math.PI * i) / springPeriodSamples);
+        // Dispersive boing tone early in tail
+        const boing = Math.sin(2 * Math.PI * (290 + 180 * Math.exp(-t * 14)) * t) * Math.exp(-t * 9) * 0.45;
+        const white = Math.random() * 2 - 1;
+        const alpha = Math.max(0.06, 0.42 - damp * 0.28);
+        lp1 += alpha * (white - lp1);
+        lp2 += alpha * (lp1 - lp2);
 
-      // 3-pole warm air absorption so tail stays velvety & non-metallic
-      const alpha = Math.max(0.03, (0.52 - damp * 0.42) * Math.exp(-tSec * (0.45 + damp * 1.2)));
-      const white = Math.random() * 2 - 1;
-      lp1 += alpha * (white - lp1);
-      lp2 += alpha * (lp1 - lp2);
-      lp3 += Math.min(0.8, alpha * 1.3) * (lp2 - lp3);
+        // Tighter 280Hz HPF gives classic vintage spring midrange twang
+        const hp = 0.965 * (hpOut + lp2 - hpIn);
+        hpIn = lp2;
+        hpOut = hp;
 
-      // Gentle 160Hz HPF so reverb never muddies low guitar strings
-      const hpOut = 0.982 * (hpPrevOut + lp3 - hpPrevIn);
-      hpPrevIn = lp3;
-      hpPrevOut = hpOut;
+        data[i] = (hp * drip + boing) * env;
+      }
 
-      data[i] = hpOut * env;
+      // Add discrete spring tank slap echoes
+      for (let k = 1; k <= 8; k++) {
+        const idx = k * springPeriodSamples;
+        if (idx < length) {
+          data[idx] += (k % 2 === 0 ? 0.35 : -0.35) * Math.pow(0.72, k);
+        }
+      }
+    } else {
+      // Hall or Shimmer Cathedral
+      const isShimmer = mode === 'shimmer';
+      const preDelay = Math.floor(sr * (ch === 0 ? 0.016 : 0.024));
+      const bloomSamples = Math.floor(sr * (isShimmer ? 0.095 : 0.045));
+
+      let lp1 = 0;
+      let lp2 = 0;
+      let lp3 = 0;
+      let hpPrevIn = 0;
+      let hpPrevOut = 0;
+
+      for (let i = preDelay; i < length; i++) {
+        const tSec = (i - preDelay) / sr;
+        const bloom = Math.min(1, (i - preDelay) / bloomSamples);
+        const env = bloom * Math.exp(-decayRate * tSec);
+
+        const baseOpen = isShimmer ? 0.68 : 0.52;
+        const alpha = Math.max(0.03, (baseOpen - damp * 0.42) * Math.exp(-tSec * (0.42 + damp * 1.1)));
+        const white = Math.random() * 2 - 1;
+        lp1 += alpha * (white - lp1);
+        lp2 += alpha * (lp1 - lp2);
+        lp3 += Math.min(0.85, alpha * 1.3) * (lp2 - lp3);
+
+        const hpOut = 0.982 * (hpPrevOut + lp3 - hpPrevIn);
+        hpPrevIn = lp3;
+        hpPrevOut = hpOut;
+
+        data[i] = hpOut * env;
+      }
     }
 
     // Calibrate RMS energy to studio unity
     let sumSq = 0;
-    for (let i = 0; i < length; i++) {
-      sumSq += data[i] * data[i];
-    }
+    for (let i = 0; i < length; i++) sumSq += data[i] * data[i];
     const rmsEnergy = Math.sqrt(sumSq);
     if (rmsEnergy > 0.001) {
-      const targetGain = 0.95 / rmsEnergy;
-      for (let i = 0; i < length; i++) {
-        data[i] *= targetGain;
-      }
+      const targetGain = (mode === 'spring' ? 0.88 : 0.96) / rmsEnergy;
+      for (let i = 0; i < length; i++) data[i] *= targetGain;
     }
   }
 

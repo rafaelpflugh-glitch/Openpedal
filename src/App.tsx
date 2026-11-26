@@ -5,11 +5,13 @@ import {
   Cable,
   Guitar,
   Keyboard,
+  Layers,
   Mic,
   MicOff,
   Play,
   Power,
   Radio,
+  RotateCcw,
   Settings,
   Square,
   Volume2
@@ -27,15 +29,23 @@ import { InstrumentRouting, SynthVoicePreset } from './audio/synthEngine';
 import { AmpCabRack } from './components/AmpCabRack';
 import { AudioSetupModal } from './components/AudioSetupModal';
 import { InstrumentDeck, InstrumentTab } from './components/InstrumentDeck';
+import { LegendaryPresetsModal } from './components/LegendaryPresetsModal';
 import { LooperDeck } from './components/LooperDeck';
 import { MetronomeWidget } from './components/MetronomeWidget';
 import { MidiModal } from './components/MidiModal';
+import { MultitrackStudio } from './components/MultitrackStudio';
 import { PEDAL_META, PedalUnit } from './components/PedalUnit';
 import { PresetBar } from './components/PresetBar';
 import { RotaryKnob } from './components/RotaryKnob';
 import { TunerBar } from './components/TunerBar';
 import { VuMeter } from './components/VuMeter';
-import { FACTORY_PRESETS, migrateRig } from './data/factoryPresets';
+import {
+  DEFAULT_AMP_CAB,
+  DEFAULT_CHAIN_ORDER,
+  FACTORY_PRESETS,
+  getDefaultPedalParams,
+  migrateRig
+} from './data/factoryPresets';
 import {
   AmpCabState,
   InputChannelMode,
@@ -160,9 +170,11 @@ export const App: React.FC = () => {
   const [drumSeqRunning, setDrumSeqRunning] = useState(false);
   const [drumCurrentStep, setDrumCurrentStep] = useState(-1);
 
-  // Modals & Drag
+  // Modals, Studio & Drag
   const [audioModalOpen, setAudioModalOpen] = useState(false);
   const [midiModalOpen, setMidiModalOpen] = useState(false);
+  const [legendsModalOpen, setLegendsModalOpen] = useState(false);
+  const [studioOpen, setStudioOpen] = useState(false);
   const [draggedPedalId, setDraggedPedalId] = useState<PedalId | null>(null);
   const [toast, setToast] = useState<string | null>(null);
 
@@ -411,6 +423,49 @@ export const App: React.FC = () => {
     },
     []
   );
+
+  const handleResetSinglePedal = useCallback(
+    (id: PedalId) => {
+      setRig((prev) => ({
+        ...prev,
+        pedals: {
+          ...prev.pedals,
+          [id]: {
+            ...prev.pedals[id],
+            params: getDefaultPedalParams(id)
+          }
+        }
+      }));
+      setIsDirty(true);
+      showToast(`Knobs de ${PEDAL_META[id].title} restaurados ao padrão original`);
+    },
+    [showToast]
+  );
+
+  const handleResetAllKnobs = useCallback(() => {
+    setRig((prev) => {
+      const resetPedals = { ...prev.pedals };
+      for (const id of DEFAULT_CHAIN_ORDER) {
+        resetPedals[id] = {
+          ...prev.pedals[id],
+          params: getDefaultPedalParams(id)
+        } as never;
+      }
+      return {
+        ...prev,
+        pedals: resetPedals,
+        ampCab: {
+          ...DEFAULT_AMP_CAB,
+          ampEnabled: prev.ampCab.ampEnabled,
+          cabEnabled: prev.ampCab.cabEnabled
+        },
+        inputGainDb: 0,
+        masterVolume: 78
+      };
+    });
+    setIsDirty(true);
+    showToast('Todos os knobs dos 15 pedais e do Amp foram zerados para o padrão de fábrica!');
+  }, [showToast]);
 
   const handleMovePedal = useCallback((fromIdx: number, toIdx: number) => {
     setRig((prev) => {
@@ -845,16 +900,19 @@ export const App: React.FC = () => {
         return;
       }
 
-      // Pedal toggles (12 stompboxes!)
+      // Pedal toggles (15 legendary stompboxes!)
       const shortcutMap: Record<string, PedalId> = {
         q: 'gate',
         w: 'compressor',
         e: 'wah',
+        z: 'whammy',
         r: 'octaver',
         a: 'drive',
         s: 'fuzz',
         d: 'eq',
         f: 'phaser',
+        x: 'flanger',
+        c: 'vibe',
         g: 'tremolo',
         y: 'chorus',
         u: 'delay',
@@ -986,6 +1044,23 @@ export const App: React.FC = () => {
 
           <button
             type="button"
+            className={`btn-tool ${studioOpen ? 'is-active' : ''}`}
+            onClick={async () => {
+              if (!studioOpen) {
+                await ensureEngineStarted();
+                setStudioOpen(true);
+              } else {
+                setStudioOpen(false);
+              }
+            }}
+            title="Abrir Estúdio Multipista (gravar camadas, editar e exportar em 1 faixa .WAV)"
+          >
+            <Layers size={16} />
+            <span>Estúdio (.WAV)</span>
+          </button>
+
+          <button
+            type="button"
             className={`btn-tool ${instrumentOpen ? 'is-active' : ''}`}
             onClick={async () => {
               if (!instrumentOpen) {
@@ -1046,6 +1121,7 @@ export const App: React.FC = () => {
         activePresetId={activePresetId}
         isDirty={isDirty}
         onSelect={handleSelectPreset}
+        onOpenLegends={() => setLegendsModalOpen(true)}
         onSaveCurrent={handleSaveCurrentPreset}
         onSaveAsNew={handleSaveAsNewPreset}
         onDelete={handleDeletePreset}
@@ -1088,6 +1164,15 @@ export const App: React.FC = () => {
         muted={tunerMuted}
         onToggleMute={handleToggleTunerMute}
         onClose={handleToggleTuner}
+      />
+
+      {/* MULTITRACK STUDIO RECORDER & WAV MIXDOWN */}
+      <MultitrackStudio
+        isOpen={studioOpen}
+        engine={engine}
+        onEnsureEngine={ensureEngineStarted}
+        onClose={() => setStudioOpen(false)}
+        onNotify={showToast}
       />
 
       {/* VIRTUAL INSTRUMENT DECK: PIANO/SYNTH + ELECTRONIC DRUMS */}
@@ -1182,6 +1267,15 @@ export const App: React.FC = () => {
               <button
                 type="button"
                 className="btn-chip"
+                onClick={handleResetAllKnobs}
+                title="Zera todos os knobs dos 15 pedais e do Amp para as posições originais de fábrica"
+              >
+                <RotateCcw size={13} />
+                <span>Zerar Knobs</span>
+              </button>
+              <button
+                type="button"
+                className="btn-chip"
                 onClick={() => {
                   setRig((prev) => {
                     const cleared = { ...prev.pedals };
@@ -1222,6 +1316,7 @@ export const App: React.FC = () => {
                 gateIsOpen={gateIsOpen}
                 onToggle={handleTogglePedal}
                 onParamChange={handlePedalParamChange}
+                onResetPedal={handleResetSinglePedal}
                 onMove={handleMovePedal}
                 onDragStart={(pid) => setDraggedPedalId(pid)}
                 onDropOn={handleDropPedal}
@@ -1311,6 +1406,13 @@ export const App: React.FC = () => {
         onStartLearn={(label, target) => setLearningAction({ label, target })}
         onCancelLearn={() => setLearningAction(null)}
         onRemoveBinding={(id) => setMidiBindings((prev) => prev.filter((b) => b.id !== id))}
+      />
+
+      <LegendaryPresetsModal
+        isOpen={legendsModalOpen}
+        activePresetId={activePresetId}
+        onSelect={handleSelectPreset}
+        onClose={() => setLegendsModalOpen(false)}
       />
 
       {/* TOAST */}

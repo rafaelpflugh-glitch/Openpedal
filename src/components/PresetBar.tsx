@@ -1,5 +1,5 @@
 import React, { useRef, useState } from 'react';
-import { Download, Plus, Save, Trash2, Upload } from 'lucide-react';
+import { Download, Plus, Save, Sparkles, Trash2, Upload } from 'lucide-react';
 import { Preset } from '../types/pedalboard';
 
 interface PresetBarProps {
@@ -7,6 +7,7 @@ interface PresetBarProps {
   activePresetId: string;
   isDirty: boolean;
   onSelect: (preset: Preset) => void;
+  onOpenLegends: () => void;
   onSaveCurrent: () => void;
   onSaveAsNew: (name: string) => void;
   onDelete: (id: string) => void;
@@ -19,6 +20,7 @@ export const PresetBar: React.FC<PresetBarProps> = ({
   activePresetId,
   isDirty,
   onSelect,
+  onOpenLegends,
   onSaveCurrent,
   onSaveAsNew,
   onDelete,
@@ -43,6 +45,16 @@ export const PresetBar: React.FC<PresetBarProps> = ({
   return (
     <div className="preset-bar">
       <div className="preset-list">
+        <button
+          type="button"
+          className="btn-legends"
+          onClick={onOpenLegends}
+          title="Abrir biblioteca completa de presets inspirados nos grandes guitarristas (Gilmour, Hendrix, Slash, Van Halen, SRV, Metallica...)"
+        >
+          <Sparkles size={13} />
+          <span>Timbres Lendários</span>
+        </button>
+
         {presets.map((preset, idx) => {
           const isActive = preset.id === activePresetId;
           return (

@@ -1,13 +1,16 @@
 import React, { useRef } from 'react';
-import { ChevronLeft, ChevronRight, GripVertical } from 'lucide-react';
+import { ChevronLeft, ChevronRight, GripVertical, RotateCcw } from 'lucide-react';
 import {
   DriveMode,
   FuzzMode,
   PedalId,
   PedalParamsMap,
   PedalState,
+  ReverbMode,
   TremoloWave,
-  WahMode
+  VibeMode,
+  WahMode,
+  WhammyInterval
 } from '../types/pedalboard';
 import { RotaryKnob } from './RotaryKnob';
 
@@ -40,6 +43,13 @@ export const PEDAL_META: Record<PedalId, PedalMeta> = {
     accent: '#facc15',
     bgTint: 'linear-gradient(165deg, #342f16 0%, #1b1910 100%)',
     shortcut: 'E'
+  },
+  whammy: {
+    title: 'WHAMMY',
+    subtitle: 'Pitch Shifter / Bend',
+    accent: '#ef4444',
+    bgTint: 'linear-gradient(165deg, #4b151a 0%, #230f13 100%)',
+    shortcut: 'Z'
   },
   octaver: {
     title: 'OCTAVER',
@@ -76,6 +86,20 @@ export const PEDAL_META: Record<PedalId, PedalMeta> = {
     bgTint: 'linear-gradient(165deg, #472512 0%, #24150e 100%)',
     shortcut: 'F'
   },
+  flanger: {
+    title: 'FLANGER',
+    subtitle: 'Electric Mistress Jet',
+    accent: '#e879f9',
+    bgTint: 'linear-gradient(165deg, #3b1c47 0%, #1d1226 100%)',
+    shortcut: 'X'
+  },
+  vibe: {
+    title: 'UNI-VIBE',
+    subtitle: 'Uni-Vibe / Rotary',
+    accent: '#60a5fa',
+    bgTint: 'linear-gradient(165deg, #172a4a 0%, #10192b 100%)',
+    shortcut: 'C'
+  },
   tremolo: {
     title: 'TREMOLO',
     subtitle: 'Opto-Pulse Vintage',
@@ -98,8 +122,8 @@ export const PEDAL_META: Record<PedalId, PedalMeta> = {
     shortcut: 'U'
   },
   reverb: {
-    title: 'REVERB HALL',
-    subtitle: 'Catedral Estéreo',
+    title: 'REVERB',
+    subtitle: 'Hall • Spring • Shimmer',
     accent: '#2dd4bf',
     bgTint: 'linear-gradient(165deg, #113535 0%, #101f22 100%)',
     shortcut: 'I'
@@ -176,6 +200,42 @@ function getDynamicSkin(pedal: PedalState): PedalMeta {
     };
   }
 
+  if (pedal.id === 'vibe') {
+    const mode = (pedal.params as PedalParamsMap['vibe']).mode;
+    if (mode === 'rotary') {
+      return {
+        ...base,
+        title: 'ROTARY LESLIE',
+        subtitle: 'Caixa Giratória Estéreo',
+        accent: '#38bdf8',
+        bgTint: 'linear-gradient(165deg, #1b314b 0%, #111b2b 100%)'
+      };
+    }
+    return {
+      ...base,
+      title: 'UNI-VIBE',
+      subtitle: 'Shin-Ei Psicodélico',
+      accent: '#a78bfa',
+      bgTint: 'linear-gradient(165deg, #281f4c 0%, #151228 100%)'
+    };
+  }
+
+  if (pedal.id === 'reverb') {
+    const mode = (pedal.params as PedalParamsMap['reverb']).mode;
+    if (mode === 'spring') {
+      return { ...base, title: 'SPRING REVERB', subtitle: 'Tanque de Mola Fender' };
+    }
+    if (mode === 'shimmer') {
+      return {
+        ...base,
+        title: 'SHIMMER REV',
+        subtitle: 'Catedral +1 Oitava',
+        accent: '#38bdf8'
+      };
+    }
+    return { ...base, title: 'HALL REVERB', subtitle: 'Sala / Catedral Estéreo' };
+  }
+
   return base;
 }
 
@@ -186,6 +246,7 @@ interface PedalUnitProps<T extends PedalId = PedalId> {
   gateIsOpen?: boolean;
   onToggle: (id: PedalId) => void;
   onParamChange: <K extends PedalId>(id: K, patch: Partial<PedalParamsMap[K]>) => void;
+  onResetPedal: (id: PedalId) => void;
   onMove: (fromIdx: number, toIdx: number) => void;
   onDragStart: (id: PedalId) => void;
   onDropOn: (targetId: PedalId) => void;
@@ -198,6 +259,7 @@ export const PedalUnit: React.FC<PedalUnitProps> = ({
   gateIsOpen = true,
   onToggle,
   onParamChange,
+  onResetPedal,
   onMove,
   onDragStart,
   onDropOn
@@ -232,7 +294,7 @@ export const PedalUnit: React.FC<PedalUnitProps> = ({
                 min={-80}
                 max={-15}
                 step={1}
-                defaultValue={-54}
+                defaultValue={-56}
                 unit="dB"
                 accentColor={meta.accent}
                 onChange={(v) => onParamChange('gate', { threshold: v })}
@@ -254,7 +316,7 @@ export const PedalUnit: React.FC<PedalUnitProps> = ({
                 type="button"
                 className={`mini-toggle ${p.humFilter60Hz ? 'is-on' : ''}`}
                 onClick={() => onParamChange('gate', { humFilter60Hz: !p.humFilter60Hz })}
-                title="Remove zumbido de 60Hz/120Hz da rede elétrica (ótimo para cabo P10→P2)"
+                title="Remove zumbido de 60Hz/120Hz da rede elétrica"
               >
                 Filtro 60Hz {p.humFilter60Hz ? 'ON' : 'OFF'}
               </button>
@@ -280,6 +342,7 @@ export const PedalUnit: React.FC<PedalUnitProps> = ({
                 defaultValue={-28}
                 unit="dB"
                 accentColor={meta.accent}
+                size={44}
                 onChange={(v) => onParamChange('compressor', { threshold: v })}
               />
               <RotaryKnob
@@ -291,6 +354,7 @@ export const PedalUnit: React.FC<PedalUnitProps> = ({
                 defaultValue={5}
                 formatValue={(v) => `${v.toFixed(1)}:1`}
                 accentColor={meta.accent}
+                size={44}
                 onChange={(v) => onParamChange('compressor', { ratio: v })}
               />
               <RotaryKnob
@@ -302,6 +366,7 @@ export const PedalUnit: React.FC<PedalUnitProps> = ({
                 defaultValue={8}
                 unit="ms"
                 accentColor={meta.accent}
+                size={44}
                 onChange={(v) => onParamChange('compressor', { attack: v / 1000 })}
               />
               <RotaryKnob
@@ -313,6 +378,7 @@ export const PedalUnit: React.FC<PedalUnitProps> = ({
                 defaultValue={5}
                 unit="dB"
                 accentColor={meta.accent}
+                size={44}
                 onChange={(v) => onParamChange('compressor', { makeup: v })}
               />
             </div>
@@ -352,7 +418,7 @@ export const PedalUnit: React.FC<PedalUnitProps> = ({
                 defaultValue={62}
                 unit="%"
                 accentColor={meta.accent}
-                size={46}
+                size={44}
                 onChange={(v) => onParamChange('wah', { position: v })}
               />
               <RotaryKnob
@@ -363,7 +429,7 @@ export const PedalUnit: React.FC<PedalUnitProps> = ({
                 step={0.1}
                 defaultValue={5.5}
                 accentColor={meta.accent}
-                size={46}
+                size={44}
                 onChange={(v) => onParamChange('wah', { q: v })}
               />
               <RotaryKnob
@@ -374,8 +440,59 @@ export const PedalUnit: React.FC<PedalUnitProps> = ({
                 defaultValue={82}
                 unit="%"
                 accentColor={meta.accent}
-                size={46}
+                size={44}
                 onChange={(v) => onParamChange('wah', { range: v })}
+              />
+            </div>
+          </div>
+        );
+      }
+
+      case 'whammy': {
+        const p = pedal.params as PedalParamsMap['whammy'];
+        const intervals: { id: WhammyInterval; label: string }[] = [
+          { id: 'oct-up', label: '+1 Oct' },
+          { id: 'oct-down', label: '-1 Oct' },
+          { id: 'fifth-up', label: '+5ª' },
+          { id: 'detune', label: 'Det' }
+        ];
+        return (
+          <div className="pedal-controls">
+            <div className="mode-pills four-col">
+              {intervals.map((iv) => (
+                <button
+                  key={iv.id}
+                  type="button"
+                  className={`mode-pill ${p.interval === iv.id ? 'is-active' : ''}`}
+                  style={p.interval === iv.id ? { borderColor: meta.accent, color: meta.accent } : undefined}
+                  onClick={() => onParamChange('whammy', { interval: iv.id })}
+                >
+                  {iv.label}
+                </button>
+              ))}
+            </div>
+            <div className="knob-grid two-col">
+              <RotaryKnob
+                label="Pedal"
+                value={p.pedal}
+                min={0}
+                max={100}
+                defaultValue={100}
+                unit="%"
+                accentColor={meta.accent}
+                size={48}
+                onChange={(v) => onParamChange('whammy', { pedal: v })}
+              />
+              <RotaryKnob
+                label="Mix"
+                value={p.mix}
+                min={0}
+                max={100}
+                defaultValue={70}
+                unit="%"
+                accentColor={meta.accent}
+                size={48}
+                onChange={(v) => onParamChange('whammy', { mix: v })}
               />
             </div>
           </div>
@@ -395,7 +512,7 @@ export const PedalUnit: React.FC<PedalUnitProps> = ({
                 defaultValue={85}
                 unit="%"
                 accentColor={meta.accent}
-                size={46}
+                size={44}
                 onChange={(v) => onParamChange('octaver', { dry: v })}
               />
               <RotaryKnob
@@ -406,7 +523,7 @@ export const PedalUnit: React.FC<PedalUnitProps> = ({
                 defaultValue={65}
                 unit="%"
                 accentColor={meta.accent}
-                size={46}
+                size={44}
                 onChange={(v) => onParamChange('octaver', { sub: v })}
               />
               <RotaryKnob
@@ -417,7 +534,7 @@ export const PedalUnit: React.FC<PedalUnitProps> = ({
                 defaultValue={25}
                 unit="%"
                 accentColor={meta.accent}
-                size={46}
+                size={44}
                 onChange={(v) => onParamChange('octaver', { octUp: v })}
               />
             </div>
@@ -456,7 +573,7 @@ export const PedalUnit: React.FC<PedalUnitProps> = ({
                 max={100}
                 defaultValue={55}
                 accentColor={meta.accent}
-                size={46}
+                size={44}
                 onChange={(v) => onParamChange('drive', { drive: v })}
               />
               <RotaryKnob
@@ -466,7 +583,7 @@ export const PedalUnit: React.FC<PedalUnitProps> = ({
                 max={100}
                 defaultValue={62}
                 accentColor={meta.accent}
-                size={46}
+                size={44}
                 onChange={(v) => onParamChange('drive', { tone: v })}
               />
               <RotaryKnob
@@ -476,7 +593,7 @@ export const PedalUnit: React.FC<PedalUnitProps> = ({
                 max={100}
                 defaultValue={72}
                 accentColor={meta.accent}
-                size={46}
+                size={44}
                 onChange={(v) => onParamChange('drive', { level: v })}
               />
             </div>
@@ -514,7 +631,7 @@ export const PedalUnit: React.FC<PedalUnitProps> = ({
                 max={100}
                 defaultValue={78}
                 accentColor={meta.accent}
-                size={46}
+                size={44}
                 onChange={(v) => onParamChange('fuzz', { sustain: v })}
               />
               <RotaryKnob
@@ -524,7 +641,7 @@ export const PedalUnit: React.FC<PedalUnitProps> = ({
                 max={100}
                 defaultValue={55}
                 accentColor={meta.accent}
-                size={46}
+                size={44}
                 onChange={(v) => onParamChange('fuzz', { tone: v })}
               />
               <RotaryKnob
@@ -534,7 +651,7 @@ export const PedalUnit: React.FC<PedalUnitProps> = ({
                 max={100}
                 defaultValue={72}
                 accentColor={meta.accent}
-                size={46}
+                size={44}
                 onChange={(v) => onParamChange('fuzz', { level: v })}
               />
             </div>
@@ -590,7 +707,7 @@ export const PedalUnit: React.FC<PedalUnitProps> = ({
                 defaultValue={0.65}
                 unit="Hz"
                 accentColor={meta.accent}
-                size={44}
+                size={42}
                 onChange={(v) => onParamChange('phaser', { rate: v })}
               />
               <RotaryKnob
@@ -601,7 +718,7 @@ export const PedalUnit: React.FC<PedalUnitProps> = ({
                 defaultValue={78}
                 unit="%"
                 accentColor={meta.accent}
-                size={44}
+                size={42}
                 onChange={(v) => onParamChange('phaser', { depth: v })}
               />
               <RotaryKnob
@@ -612,7 +729,7 @@ export const PedalUnit: React.FC<PedalUnitProps> = ({
                 defaultValue={58}
                 unit="%"
                 accentColor={meta.accent}
-                size={44}
+                size={42}
                 onChange={(v) => onParamChange('phaser', { feedback: v })}
               />
               <RotaryKnob
@@ -623,8 +740,125 @@ export const PedalUnit: React.FC<PedalUnitProps> = ({
                 defaultValue={62}
                 unit="%"
                 accentColor={meta.accent}
-                size={44}
+                size={42}
                 onChange={(v) => onParamChange('phaser', { mix: v })}
+              />
+            </div>
+          </div>
+        );
+      }
+
+      case 'flanger': {
+        const p = pedal.params as PedalParamsMap['flanger'];
+        return (
+          <div className="pedal-controls">
+            <div className="knob-grid two-col">
+              <RotaryKnob
+                label="Rate"
+                value={p.rate}
+                min={0.08}
+                max={4}
+                step={0.02}
+                defaultValue={0.35}
+                unit="Hz"
+                accentColor={meta.accent}
+                size={42}
+                onChange={(v) => onParamChange('flanger', { rate: v })}
+              />
+              <RotaryKnob
+                label="Depth"
+                value={p.depth}
+                min={0}
+                max={100}
+                defaultValue={72}
+                unit="%"
+                accentColor={meta.accent}
+                size={42}
+                onChange={(v) => onParamChange('flanger', { depth: v })}
+              />
+              <RotaryKnob
+                label="Regen"
+                value={p.feedback}
+                min={-85}
+                max={85}
+                step={1}
+                defaultValue={60}
+                unit="%"
+                accentColor={meta.accent}
+                size={42}
+                onChange={(v) => onParamChange('flanger', { feedback: v })}
+              />
+              <RotaryKnob
+                label="Mix"
+                value={p.mix}
+                min={0}
+                max={100}
+                defaultValue={55}
+                unit="%"
+                accentColor={meta.accent}
+                size={42}
+                onChange={(v) => onParamChange('flanger', { mix: v })}
+              />
+            </div>
+          </div>
+        );
+      }
+
+      case 'vibe': {
+        const p = pedal.params as PedalParamsMap['vibe'];
+        const modes: { id: VibeMode; label: string }[] = [
+          { id: 'univibe', label: 'Uni-Vibe' },
+          { id: 'rotary', label: 'Rotary' }
+        ];
+        return (
+          <div className="pedal-controls">
+            <div className="mode-pills two-col">
+              {modes.map((m) => (
+                <button
+                  key={m.id}
+                  type="button"
+                  className={`mode-pill ${p.mode === m.id ? 'is-active' : ''}`}
+                  style={p.mode === m.id ? { borderColor: meta.accent, color: meta.accent } : undefined}
+                  onClick={() => onParamChange('vibe', { mode: m.id })}
+                >
+                  {m.label}
+                </button>
+              ))}
+            </div>
+            <div className="knob-grid three-col">
+              <RotaryKnob
+                label="Speed"
+                value={p.speed}
+                min={0.3}
+                max={9}
+                step={0.1}
+                defaultValue={2.2}
+                unit="Hz"
+                accentColor={meta.accent}
+                size={44}
+                onChange={(v) => onParamChange('vibe', { speed: v })}
+              />
+              <RotaryKnob
+                label="Depth"
+                value={p.depth}
+                min={0}
+                max={100}
+                defaultValue={76}
+                unit="%"
+                accentColor={meta.accent}
+                size={44}
+                onChange={(v) => onParamChange('vibe', { depth: v })}
+              />
+              <RotaryKnob
+                label="Mix"
+                value={p.mix}
+                min={0}
+                max={100}
+                defaultValue={72}
+                unit="%"
+                accentColor={meta.accent}
+                size={44}
+                onChange={(v) => onParamChange('vibe', { mix: v })}
               />
             </div>
           </div>
@@ -696,7 +930,7 @@ export const PedalUnit: React.FC<PedalUnitProps> = ({
                 defaultValue={1.1}
                 unit="Hz"
                 accentColor={meta.accent}
-                size={46}
+                size={44}
                 onChange={(v) => onParamChange('chorus', { rate: v })}
               />
               <RotaryKnob
@@ -707,7 +941,7 @@ export const PedalUnit: React.FC<PedalUnitProps> = ({
                 defaultValue={64}
                 unit="%"
                 accentColor={meta.accent}
-                size={46}
+                size={44}
                 onChange={(v) => onParamChange('chorus', { depth: v })}
               />
               <RotaryKnob
@@ -718,7 +952,7 @@ export const PedalUnit: React.FC<PedalUnitProps> = ({
                 defaultValue={55}
                 unit="%"
                 accentColor={meta.accent}
-                size={46}
+                size={44}
                 onChange={(v) => onParamChange('chorus', { mix: v })}
               />
             </div>
@@ -740,7 +974,7 @@ export const PedalUnit: React.FC<PedalUnitProps> = ({
                 defaultValue={360}
                 unit="ms"
                 accentColor={meta.accent}
-                size={44}
+                size={42}
                 onChange={(v) => onParamChange('delay', { timeMs: v })}
               />
               <RotaryKnob
@@ -751,7 +985,7 @@ export const PedalUnit: React.FC<PedalUnitProps> = ({
                 defaultValue={42}
                 unit="%"
                 accentColor={meta.accent}
-                size={44}
+                size={42}
                 onChange={(v) => onParamChange('delay', { feedback: v })}
               />
               <RotaryKnob
@@ -761,7 +995,7 @@ export const PedalUnit: React.FC<PedalUnitProps> = ({
                 max={100}
                 defaultValue={56}
                 accentColor={meta.accent}
-                size={44}
+                size={42}
                 onChange={(v) => onParamChange('delay', { tone: v })}
               />
               <RotaryKnob
@@ -772,7 +1006,7 @@ export const PedalUnit: React.FC<PedalUnitProps> = ({
                 defaultValue={40}
                 unit="%"
                 accentColor={meta.accent}
-                size={44}
+                size={42}
                 onChange={(v) => onParamChange('delay', { mix: v })}
               />
             </div>
@@ -785,8 +1019,26 @@ export const PedalUnit: React.FC<PedalUnitProps> = ({
 
       case 'reverb': {
         const p = pedal.params as PedalParamsMap['reverb'];
+        const modes: { id: ReverbMode; label: string }[] = [
+          { id: 'hall', label: 'Hall' },
+          { id: 'spring', label: 'Spring' },
+          { id: 'shimmer', label: 'Shimmer' }
+        ];
         return (
           <div className="pedal-controls">
+            <div className="mode-pills">
+              {modes.map((m) => (
+                <button
+                  key={m.id}
+                  type="button"
+                  className={`mode-pill ${p.mode === m.id ? 'is-active' : ''}`}
+                  style={p.mode === m.id ? { borderColor: meta.accent, color: meta.accent } : undefined}
+                  onClick={() => onParamChange('reverb', { mode: m.id })}
+                >
+                  {m.label}
+                </button>
+              ))}
+            </div>
             <div className="knob-grid three-col">
               <RotaryKnob
                 label="Decay"
@@ -797,7 +1049,7 @@ export const PedalUnit: React.FC<PedalUnitProps> = ({
                 defaultValue={2.3}
                 unit="s"
                 accentColor={meta.accent}
-                size={46}
+                size={44}
                 onChange={(v) => onParamChange('reverb', { decay: v })}
               />
               <RotaryKnob
@@ -808,7 +1060,7 @@ export const PedalUnit: React.FC<PedalUnitProps> = ({
                 defaultValue={40}
                 unit="%"
                 accentColor={meta.accent}
-                size={46}
+                size={44}
                 onChange={(v) => onParamChange('reverb', { dampening: v })}
               />
               <RotaryKnob
@@ -819,7 +1071,7 @@ export const PedalUnit: React.FC<PedalUnitProps> = ({
                 defaultValue={34}
                 unit="%"
                 accentColor={meta.accent}
-                size={46}
+                size={44}
                 onChange={(v) => onParamChange('reverb', { mix: v })}
               />
             </div>
@@ -863,9 +1115,20 @@ export const PedalUnit: React.FC<PedalUnitProps> = ({
             <ChevronRight size={13} />
           </button>
         </div>
-        <span className="shortcut-chip" title={`Atalho de teclado: tecla ${meta.shortcut}`}>
-          {meta.shortcut}
-        </span>
+
+        <div className="pedal-top-right">
+          <button
+            type="button"
+            className="pedal-reset-btn"
+            onClick={() => onResetPedal(pedal.id)}
+            title={`Zerar knobs de ${meta.title} para a posição original`}
+          >
+            <RotateCcw size={11} />
+          </button>
+          <span className="shortcut-chip" title={`Atalho de teclado: tecla ${meta.shortcut}`}>
+            {meta.shortcut}
+          </span>
+        </div>
       </div>
 
       <div className="pedal-header">

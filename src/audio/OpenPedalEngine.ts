@@ -6,6 +6,7 @@ import {
   OutputMode,
   PedalId,
   RigState,
+  StudioTrack,
   TestRiffStyle,
   TunerReading
 } from '../types/pedalboard';
@@ -13,6 +14,7 @@ import { DEFAULT_CHAIN_ORDER } from '../data/factoryPresets';
 import { DrumEngine, DrumKitStyle, DrumPadId, DrumPattern, DrumRouting } from './drumEngine';
 import { generateCabinetIR, generateReverbIR } from './irGenerator';
 import { MetronomeEngine } from './metronome';
+import { MultitrackPlayer, extractWaveformPeaks, pickTrackColor } from './multitrackStudio';
 import { InstrumentRouting, SynthEngine, SynthVoicePreset } from './synthEngine';
 import { TestGuitarPlayer } from './testGuitar';
 import { detectPitch } from './tuner';
@@ -38,9 +40,9 @@ export interface AudioDeviceList {
   outputs: MediaDeviceInfo[];
 }
 
-// Pedals 0..6 run Pre-Amp (Gate, Comp, Wah, Octaver, Drive, Fuzz, EQ);
-// Pedals 7..11 run Post-Amp in True Stereo FX Loop (Phaser, Tremolo, Chorus, Delay, Reverb).
-export const FX_LOOP_SPLIT_INDEX = 7;
+// Pedals 0..7 run Pre-Amp (Gate, Comp, Wah, Whammy, Octaver, Drive, Fuzz, EQ);
+// Pedals 8..14 run Post-Amp in True Stereo FX Loop (Phaser, Flanger, Vibe/Rotary, Tremolo, Chorus, Delay, Reverb).
+export const FX_LOOP_SPLIT_INDEX = 8;
 
 export class OpenPedalEngine {
   private ctx: AudioContext | null = null;
@@ -58,13 +60,22 @@ export class OpenPedalEngine {
   private tunerMuteGain: GainNode | null = null;
   private chainEntry: GainNode | null = null;
 
-  // Test guitar, Metronome, Synth & Drums
+  // Test guitar, Metronome, Synth, Drums & Multitrack Studio
   private testGuitar: TestGuitarPlayer | null = null;
   private metronome: MetronomeEngine | null = null;
   private synth: SynthEngine | null = null;
   private drums: DrumEngine | null = null;
+  private multitrackPlayer: MultitrackPlayer | null = null;
+  private studioRecorderWorklet: AudioWorkletNode | null = null;
+  private finalMixBus: GainNode | null = null;
 
-  // 12 Pedals
+  // Lossless studio recording accumulator
+  private recChunksL: Float32Array[] = [];
+  private recChunksR: Float32Array[] = [];
+  private recTotalSamples = 0;
+  private recResolve: ((buf: AudioBuffer | null) => void) | null = null;
+
+  // 15 Pedals
   private pedals!: Record<PedalId, PedalModule>;
 
   // Gate
@@ -76,13 +87,16 @@ export class OpenPedalEngine {
   private compNode: DynamicsCompressorNode | null = null;
   private compMakeup: GainNode | null = null;
 
-  // Cry Baby / Auto-Wah Worklet
+  // Cry Baby / Auto-Wah
   private wahWorklet: AudioWorkletNode | null = null;
 
-  // Analog Octaver (-1 Oct / +1 Oct) Worklet
+  // Whammy / Pitch Shifter
+  private whammyWorklet: AudioWorkletNode | null = null;
+
+  // Analog Octaver
   private octaverWorklet: AudioWorkletNode | null = null;
 
-  // Legendary Drive (4x Oversampled AudioWorklet: Klon Centaur, TS9, Boss DS-1, ProCo RAT)
+  // Legendary Drive (4x Oversampled AudioWorklet)
   private drivePreHpf: BiquadFilterNode | null = null;
   private drivePreVoice: BiquadFilterNode | null = null;
   private driveWorklet: AudioWorkletNode | null = null;
@@ -90,7 +104,7 @@ export class OpenPedalEngine {
   private driveTone: BiquadFilterNode | null = null;
   private driveLevel: GainNode | null = null;
 
-  // Legendary Fuzz (4x Oversampled AudioWorklet: Big Muff Pi w/ Tilt Tone Stack, Fuzz Face, Super Fuzz)
+  // Legendary Fuzz (4x Oversampled AudioWorklet + Tilt Tone Stack)
   private fuzzPreHpf: BiquadFilterNode | null = null;
   private fuzzPreVoice: BiquadFilterNode | null = null;
   private fuzzWorklet: AudioWorkletNode | null = null;
@@ -105,7 +119,7 @@ export class OpenPedalEngine {
   private eqBands: BiquadFilterNode[] = [];
   private eqLevel: GainNode | null = null;
 
-  // 4-Stage All-Pass Phaser (MXR Phase 90 / Small Stone)
+  // 4-Stage All-Pass Phaser
   private phaserStages: BiquadFilterNode[] = [];
   private phaserLfo: OscillatorNode | null = null;
   private phaserLfoGains: GainNode[] = [];
@@ -113,7 +127,26 @@ export class OpenPedalEngine {
   private phaserDry: GainNode | null = null;
   private phaserWet: GainNode | null = null;
 
-  // Opto-Tremolo (Sine / Triangle / Square)
+  // Jet Flanger (Electric Mistress / Boss BF-2)
+  private flangerDelay: DelayNode | null = null;
+  private flangerLfo: OscillatorNode | null = null;
+  private flangerLfoGain: GainNode | null = null;
+  private flangerFeedback: GainNode | null = null;
+  private flangerDry: GainNode | null = null;
+  private flangerWet: GainNode | null = null;
+
+  // Uni-Vibe / Rotary (Leslie)
+  private vibeStages: BiquadFilterNode[] = [];
+  private vibeLfo: OscillatorNode | null = null;
+  private vibeLfoFreqGains: GainNode[] = [];
+  private vibeAmpL: GainNode | null = null;
+  private vibeAmpR: GainNode | null = null;
+  private vibeAmpModL: GainNode | null = null;
+  private vibeAmpModR: GainNode | null = null;
+  private vibeDry: GainNode | null = null;
+  private vibeWet: GainNode | null = null;
+
+  // Opto-Tremolo
   private tremoloAmpGain: GainNode | null = null;
   private tremoloLfo: OscillatorNode | null = null;
   private tremoloLfoDepth: GainNode | null = null;
@@ -128,7 +161,7 @@ export class OpenPedalEngine {
   private chorusEffectWet: GainNode | null = null;
   private chorusEffectDry: GainNode | null = null;
 
-  // True Stereo Ping-Pong Analog Delay
+  // True Stereo Ping-Pong Delay
   private delayL: DelayNode | null = null;
   private delayR: DelayNode | null = null;
   private delayToneL: BiquadFilterNode | null = null;
@@ -137,8 +170,10 @@ export class OpenPedalEngine {
   private delayEffectWet: GainNode | null = null;
   private delayEffectDry: GainNode | null = null;
 
-  // True Stereo Studio Hall/Cathedral Reverb
+  // 3-Mode Reverb (Hall / Spring / Shimmer w/ Octave-Up Shimmer Bus!)
   private reverbConvolver: ConvolverNode | null = null;
+  private reverbShimmerPitch: AudioWorkletNode | null = null;
+  private reverbShimmerGain: GainNode | null = null;
   private reverbEffectWet: GainNode | null = null;
   private reverbEffectDry: GainNode | null = null;
   private lastReverbKey = '';
@@ -196,6 +231,10 @@ export class OpenPedalEngine {
     return this.liveInputActive;
   }
 
+  getSampleRate() {
+    return this.ctx?.sampleRate || 48000;
+  }
+
   getLatencyInfo(): { baseLatencyMs: number; outputLatencyMs: number; sampleRate: number } {
     if (!this.ctx) return { baseLatencyMs: 0, outputLatencyMs: 0, sampleRate: 48000 };
     const ctxAny = this.ctx as AudioContext & { outputLatency?: number };
@@ -221,10 +260,9 @@ export class OpenPedalEngine {
       await this.ctx.resume();
     }
 
-    // Load AudioWorklet processors (Gate, Wah, Octaver, Looper)
     await this.ctx.audioWorklet.addModule('/worklets/openpedal-worklets.js');
 
-    // Build Input Stage
+    // Input Stage
     this.leftSelectGain = this.ctx.createGain();
     this.rightSelectGain = this.ctx.createGain();
     this.inputTrimGain = this.ctx.createGain();
@@ -243,13 +281,13 @@ export class OpenPedalEngine {
 
     this.testGuitar = new TestGuitarPlayer(this.ctx, this.inputTrimGain);
 
-    // Build all 12 Pedals
+    // Build all 15 Pedals
     this.buildPedals();
 
-    // Build Dual-Stage Amp & Cab section
+    // Build Amp & Cab
     await this.buildAmpAndCab();
 
-    // Build Post-FX Looper & Master Output
+    // Looper -> Master -> SafetyLimiter -> StudioRecorder (captures ONLY live!) -> FinalMixBus -> Analyser -> Speakers
     this.looperWorklet = new AudioWorkletNode(this.ctx, 'looper-processor', {
       numberOfInputs: 1,
       numberOfOutputs: 1,
@@ -267,21 +305,46 @@ export class OpenPedalEngine {
     this.safetyLimiter.attack.value = 0.002;
     this.safetyLimiter.release.value = 0.07;
 
+    this.studioRecorderWorklet = new AudioWorkletNode(this.ctx, 'studio-recorder-processor', {
+      numberOfInputs: 1,
+      numberOfOutputs: 1,
+      outputChannelCount: [2]
+    });
+    this.studioRecorderWorklet.port.onmessage = (e) => {
+      const msg = e.data;
+      if (!msg) return;
+      if (msg.type === 'chunk') {
+        const l = msg.left as Float32Array;
+        const r = msg.right as Float32Array;
+        this.recChunksL.push(l);
+        this.recChunksR.push(r);
+        this.recTotalSamples += l.length;
+      } else if (msg.type === 'stopped') {
+        this.finishRecordingBuffer();
+      }
+    };
+
+    this.finalMixBus = this.ctx.createGain();
     this.outputAnalyser = this.ctx.createAnalyser();
     this.outputAnalyser.fftSize = 1024;
     this.outputAnalyser.smoothingTimeConstant = 0.3;
 
     this.looperWorklet.connect(this.masterGain);
     this.masterGain.connect(this.safetyLimiter);
-    this.safetyLimiter.connect(this.outputAnalyser);
+    this.safetyLimiter.connect(this.studioRecorderWorklet);
+    this.studioRecorderWorklet.connect(this.finalMixBus);
+    this.finalMixBus.connect(this.outputAnalyser);
     this.outputAnalyser.connect(this.ctx.destination);
 
-    // Metronome
-    this.metronome = new MetronomeEngine(this.ctx, this.safetyLimiter, (beat, total) => {
+    // Multitrack playback routes into finalMixBus (AFTER studioRecorderWorklet so playback never bleeds into new takes!)
+    this.multitrackPlayer = new MultitrackPlayer(this.ctx, this.finalMixBus);
+
+    // Metronome goes straight to finalMixBus (never recorded into new multitrack layer!)
+    this.metronome = new MetronomeEngine(this.ctx, this.finalMixBus, (beat, total) => {
       this.callbacks.onMetronomeBeat?.(beat, total);
     });
 
-    // Virtual Instruments: Piano/Synth + Drum Machine
+    // Virtual Instruments: Piano/Workstation + Drums
     this.synth = new SynthEngine(this.ctx, this.looperWorklet);
     this.drums = new DrumEngine(this.ctx, this.safetyLimiter, (step) => {
       this.callbacks.onDrumStep?.(step);
@@ -337,19 +400,25 @@ export class OpenPedalEngine {
     this.compNode.connect(this.compMakeup);
     this.compMakeup.connect(compressor.wetGain);
 
-    // 3. Cry Baby Wah / Envelope Auto-Wah (AudioWorklet SVF)
+    // 3. Cry Baby Wah / Envelope Auto-Wah
     const wah = makeModule('wah');
     this.wahWorklet = new AudioWorkletNode(ctx, 'envelope-wah-processor');
     wah.input.connect(this.wahWorklet);
     this.wahWorklet.connect(wah.wetGain);
 
-    // 4. Analog Octaver (-1 Oct Boss OC-2 + +1 Oct Octavia)
+    // 4. Digitech Whammy / Pitch Shifter
+    const whammy = makeModule('whammy');
+    this.whammyWorklet = new AudioWorkletNode(ctx, 'pitch-shifter-processor');
+    whammy.input.connect(this.whammyWorklet);
+    this.whammyWorklet.connect(whammy.wetGain);
+
+    // 5. Analog Octaver
     const octaver = makeModule('octaver');
     this.octaverWorklet = new AudioWorkletNode(ctx, 'octaver-processor');
     octaver.input.connect(this.octaverWorklet);
     this.octaverWorklet.connect(octaver.wetGain);
 
-    // 5. Legendary Overdrive / Distortion (4x Oversampled AudioWorklet w/ Dynamic Bias Sag & Slew!)
+    // 6. Legendary Drive (4x Oversampled AudioWorklet)
     const drive = makeModule('drive');
     this.drivePreHpf = ctx.createBiquadFilter();
     this.drivePreHpf.type = 'highpass';
@@ -380,7 +449,7 @@ export class OpenPedalEngine {
     this.driveTone.connect(this.driveLevel);
     this.driveLevel.connect(drive.wetGain);
 
-    // 6. Legendary Fuzz (4x Oversampled Cascading AudioWorklet + Big Muff Passive Tilt Tone Stack!)
+    // 7. Legendary Fuzz (4x Oversampled AudioWorklet + Tilt Tone Stack)
     const fuzz = makeModule('fuzz');
     this.fuzzPreHpf = ctx.createBiquadFilter();
     this.fuzzPreHpf.type = 'highpass';
@@ -426,7 +495,7 @@ export class OpenPedalEngine {
     this.fuzzPostLpf.connect(this.fuzzLevel);
     this.fuzzLevel.connect(fuzz.wetGain);
 
-    // 7. 5-Band Graphic Guitar EQ
+    // 8. 5-Band EQ
     const eq = makeModule('eq');
     const freqs = [100, 280, 800, 2200, 4800];
     this.eqBands = freqs.map((freq, idx) => {
@@ -446,7 +515,7 @@ export class OpenPedalEngine {
     eqPrev.connect(this.eqLevel);
     this.eqLevel.connect(eq.wetGain);
 
-    // 8. 4-Stage All-Pass Phaser (MXR Phase 90 / Small Stone)
+    // 9. 4-Stage All-Pass Phaser (Phase 90)
     const phaser = makeModule('phaser');
     this.phaserDry = ctx.createGain();
     this.phaserWet = ctx.createGain();
@@ -477,7 +546,6 @@ export class OpenPedalEngine {
     const phaserSum = ctx.createGain();
     phaser.input.connect(this.phaserDry);
     this.phaserDry.connect(phaser.wetGain);
-
     phaser.input.connect(phaserSum);
     let pPrev: AudioNode = phaserSum;
     for (const st of this.phaserStages) {
@@ -489,7 +557,92 @@ export class OpenPedalEngine {
     pPrev.connect(this.phaserWet);
     this.phaserWet.connect(phaser.wetGain);
 
-    // 9. Opto-Tremolo (Sine / Triangle / Square)
+    // 10. Jet Flanger (Electric Mistress / Boss BF-2)
+    const flanger = makeModule('flanger');
+    this.flangerDry = ctx.createGain();
+    this.flangerWet = ctx.createGain();
+    this.flangerDelay = ctx.createDelay(0.05);
+    this.flangerDelay.delayTime.value = 0.0042;
+    this.flangerFeedback = ctx.createGain();
+    this.flangerFeedback.gain.value = 0.6;
+
+    this.flangerLfo = ctx.createOscillator();
+    this.flangerLfo.type = 'sine';
+    this.flangerLfo.frequency.value = 0.35;
+    this.flangerLfoGain = ctx.createGain();
+    this.flangerLfoGain.gain.value = 0.0028;
+
+    this.flangerLfo.connect(this.flangerLfoGain);
+    this.flangerLfoGain.connect(this.flangerDelay.delayTime);
+    this.flangerLfo.start();
+
+    const flangerSum = ctx.createGain();
+    flanger.input.connect(this.flangerDry);
+    this.flangerDry.connect(flanger.wetGain);
+    flanger.input.connect(flangerSum);
+    flangerSum.connect(this.flangerDelay);
+    this.flangerDelay.connect(this.flangerFeedback);
+    this.flangerFeedback.connect(flangerSum);
+    this.flangerDelay.connect(this.flangerWet);
+    this.flangerWet.connect(flanger.wetGain);
+
+    // 11. Uni-Vibe / Rotary (Leslie) — Staggered Asymmetric 4-Stage All-Pass + Stereo Rotary AM!
+    const vibe = makeModule('vibe');
+    this.vibeDry = ctx.createGain();
+    this.vibeWet = ctx.createGain();
+
+    const vibeBases = [190, 440, 920, 2150];
+    this.vibeStages = vibeBases.map((f) => {
+      const ap = ctx.createBiquadFilter();
+      ap.type = 'allpass';
+      ap.frequency.value = f;
+      ap.Q.value = 0.9;
+      return ap;
+    });
+
+    this.vibeLfo = ctx.createOscillator();
+    this.vibeLfo.type = 'sine';
+    this.vibeLfo.frequency.value = 2.2;
+    this.vibeLfoFreqGains = vibeBases.map((baseF, idx) => {
+      const g = ctx.createGain();
+      g.gain.value = baseF * 0.68;
+      this.vibeLfo!.connect(g);
+      g.connect(this.vibeStages[idx].frequency);
+      return g;
+    });
+
+    // Stereo Rotary Horn AM panning (Left + Right modulated 180° out of phase for swirling Leslie!)
+    this.vibeAmpL = ctx.createGain();
+    this.vibeAmpR = ctx.createGain();
+    this.vibeAmpL.gain.value = 0.8;
+    this.vibeAmpR.gain.value = 0.8;
+    this.vibeAmpModL = ctx.createGain();
+    this.vibeAmpModR = ctx.createGain();
+    this.vibeAmpModL.gain.value = 0.2;
+    this.vibeAmpModR.gain.value = -0.2;
+    this.vibeLfo.connect(this.vibeAmpModL);
+    this.vibeLfo.connect(this.vibeAmpModR);
+    this.vibeAmpModL.connect(this.vibeAmpL.gain);
+    this.vibeAmpModR.connect(this.vibeAmpR.gain);
+    this.vibeLfo.start();
+
+    const vibeMerger = ctx.createChannelMerger(2);
+    vibe.input.connect(this.vibeDry);
+    this.vibeDry.connect(vibe.wetGain);
+
+    let vPrev: AudioNode = vibe.input;
+    for (const st of this.vibeStages) {
+      vPrev.connect(st);
+      vPrev = st;
+    }
+    vPrev.connect(this.vibeAmpL);
+    vPrev.connect(this.vibeAmpR);
+    this.vibeAmpL.connect(vibeMerger, 0, 0);
+    this.vibeAmpR.connect(vibeMerger, 0, 1);
+    vibeMerger.connect(this.vibeWet);
+    this.vibeWet.connect(vibe.wetGain);
+
+    // 12. Opto-Tremolo
     const tremolo = makeModule('tremolo');
     this.tremoloAmpGain = ctx.createGain();
     this.tremoloAmpGain.gain.value = 0.7;
@@ -498,15 +651,13 @@ export class OpenPedalEngine {
     this.tremoloLfo.frequency.value = 4.2;
     this.tremoloLfoDepth = ctx.createGain();
     this.tremoloLfoDepth.gain.value = 0.3;
-
     this.tremoloLfo.connect(this.tremoloLfoDepth);
     this.tremoloLfoDepth.connect(this.tremoloAmpGain.gain);
     this.tremoloLfo.start();
-
     tremolo.input.connect(this.tremoloAmpGain);
     this.tremoloAmpGain.connect(tremolo.wetGain);
 
-    // 10. True Stereo Dual-Voice Chorus
+    // 13. True Stereo Dual-Voice Chorus
     const chorus = makeModule('chorus');
     this.chorusEffectDry = ctx.createGain();
     this.chorusEffectWet = ctx.createGain();
@@ -522,7 +673,6 @@ export class OpenPedalEngine {
     this.chorusLfo = ctx.createOscillator();
     this.chorusLfo.type = 'sine';
     this.chorusLfo.frequency.value = 1.1;
-
     this.chorusLfoGainL = ctx.createGain();
     this.chorusLfoGainL.gain.value = 0.0045;
     this.chorusLfoGainR = ctx.createGain();
@@ -537,7 +687,6 @@ export class OpenPedalEngine {
     const chorusMerger = ctx.createChannelMerger(2);
     chorus.input.connect(this.chorusEffectDry);
     this.chorusEffectDry.connect(chorus.wetGain);
-
     chorus.input.connect(this.chorusWetHpf);
     this.chorusWetHpf.connect(this.chorusDelayL);
     this.chorusWetHpf.connect(this.chorusDelayR);
@@ -546,11 +695,10 @@ export class OpenPedalEngine {
     chorusMerger.connect(this.chorusEffectWet);
     this.chorusEffectWet.connect(chorus.wetGain);
 
-    // 11. True Stereo Ping-Pong Analog Tape Delay
+    // 14. True Stereo Ping-Pong Delay
     const delay = makeModule('delay');
     this.delayEffectDry = ctx.createGain();
     this.delayEffectWet = ctx.createGain();
-
     this.delayL = ctx.createDelay(1.5);
     this.delayR = ctx.createDelay(1.5);
     this.delayL.delayTime.value = 0.36;
@@ -559,19 +707,15 @@ export class OpenPedalEngine {
     this.delayToneL = ctx.createBiquadFilter();
     this.delayToneL.type = 'lowpass';
     this.delayToneL.frequency.value = 3400;
-
     this.delayToneR = ctx.createBiquadFilter();
     this.delayToneR.type = 'lowpass';
     this.delayToneR.frequency.value = 3400;
-
     this.delayFeedback = ctx.createGain();
     this.delayFeedback.gain.value = 0.42;
 
     const delayMerger = ctx.createChannelMerger(2);
-
     delay.input.connect(this.delayEffectDry);
     this.delayEffectDry.connect(delay.wetGain);
-
     delay.input.connect(this.delayL);
     this.delayL.connect(this.delayToneL);
     this.delayToneL.connect(delayMerger, 0, 0);
@@ -580,21 +724,40 @@ export class OpenPedalEngine {
     this.delayToneR.connect(delayMerger, 0, 1);
     this.delayToneR.connect(this.delayFeedback);
     this.delayFeedback.connect(this.delayL);
-
     delayMerger.connect(this.delayEffectWet);
     this.delayEffectWet.connect(delay.wetGain);
 
-    // 12. True Stereo Hall/Cathedral Reverb
+    // 15. 3-Mode Stereo Reverb: Hall / Spring / Shimmer (with +12st Shimmer Octave Bus!)
     const reverb = makeModule('reverb');
     this.reverbEffectDry = ctx.createGain();
     this.reverbEffectWet = ctx.createGain();
     this.reverbConvolver = ctx.createConvolver();
     this.reverbConvolver.normalize = false;
-    this.reverbConvolver.buffer = generateReverbIR(ctx, 2.2, 42);
+    this.reverbConvolver.buffer = generateReverbIR(ctx, 'hall', 2.2, 42);
+
+    this.reverbShimmerPitch = new AudioWorkletNode(ctx, 'pitch-shifter-processor');
+    this.reverbShimmerPitch.parameters.get('semitones')?.setValueAtTime(12, ctx.currentTime);
+    this.reverbShimmerPitch.parameters.get('mix')?.setValueAtTime(1, ctx.currentTime);
+    this.reverbShimmerPitch.parameters.get('enabled')?.setValueAtTime(0, ctx.currentTime);
+
+    this.reverbShimmerGain = ctx.createGain();
+    this.reverbShimmerGain.gain.value = 0;
+
+    const shimmerLpf = ctx.createBiquadFilter();
+    shimmerLpf.type = 'lowpass';
+    shimmerLpf.frequency.value = 5600;
 
     reverb.input.connect(this.reverbEffectDry);
     this.reverbEffectDry.connect(reverb.wetGain);
+
+    // Normal feed to convolver
     reverb.input.connect(this.reverbConvolver);
+    // Octave-up shimmer feed into convolver (only active in 'shimmer' mode!)
+    reverb.input.connect(this.reverbShimmerPitch);
+    this.reverbShimmerPitch.connect(shimmerLpf);
+    shimmerLpf.connect(this.reverbShimmerGain);
+    this.reverbShimmerGain.connect(this.reverbConvolver);
+
     this.reverbConvolver.connect(this.reverbEffectWet);
     this.reverbEffectWet.connect(reverb.wetGain);
 
@@ -602,11 +765,14 @@ export class OpenPedalEngine {
       gate,
       compressor,
       wah,
+      whammy,
       octaver,
       drive,
       fuzz,
       eq,
       phaser,
+      flanger,
+      vibe,
       tremolo,
       chorus,
       delay,
@@ -687,7 +853,7 @@ export class OpenPedalEngine {
     this.ampMaster.connect(this.ampWetGain);
     this.ampWetGain.connect(this.ampOutput);
 
-    // Cabinet Sim (normalize=false because our IRs are already calibrated to unity RMS!)
+    // Cabinet Sim
     this.cabDryGain = ctx.createGain();
     this.cabWetGain = ctx.createGain();
     this.cabConvolver = ctx.createConvolver();
@@ -766,7 +932,6 @@ export class OpenPedalEngine {
       this.reconnectChain(rig.chainOrder);
     }
 
-    // Input Gain & Master Volume
     const inGainLinear = Math.pow(10, rig.inputGainDb / 20);
     this.inputTrimGain!.gain.setTargetAtTime(inGainLinear, now, smooth);
     this.masterGain!.gain.setTargetAtTime(Math.pow(rig.masterVolume / 100, 1.3) * 1.25, now, smooth);
@@ -778,7 +943,7 @@ export class OpenPedalEngine {
       mod.dryGain.gain.setTargetAtTime(enabled ? 0 : 1, now, smooth);
     };
 
-    // 1. Noise Gate + 60Hz Hum Notch
+    // 1. Gate
     const g = rig.pedals.gate;
     setBypass('gate', g.enabled);
     if (this.gateWorklet) {
@@ -791,7 +956,7 @@ export class OpenPedalEngine {
       this.humNotch120.type = g.params.humFilter60Hz ? 'notch' : 'allpass';
     }
 
-    // 2. Optical Compressor
+    // 2. Compressor
     const c = rig.pedals.compressor;
     setBypass('compressor', c.enabled);
     this.compNode!.threshold.setTargetAtTime(c.params.threshold, now, smooth);
@@ -799,7 +964,7 @@ export class OpenPedalEngine {
     this.compNode!.attack.setTargetAtTime(c.params.attack, now, smooth);
     this.compMakeup!.gain.setTargetAtTime(Math.pow(10, c.params.makeup / 20), now, smooth);
 
-    // 3. Cry Baby / Auto-Wah
+    // 3. Cry Wah
     const w = rig.pedals.wah;
     setBypass('wah', w.enabled);
     if (this.wahWorklet) {
@@ -811,7 +976,25 @@ export class OpenPedalEngine {
       this.wahWorklet.parameters.get('enabled')?.setValueAtTime(w.enabled ? 1 : 0, now);
     }
 
-    // 4. Analog Octaver (-1 Oct / +1 Oct)
+    // 4. Whammy / Pitch Shifter
+    const wh = rig.pedals.whammy;
+    setBypass('whammy', wh.enabled);
+    if (this.whammyWorklet) {
+      const targetMax =
+        wh.params.interval === 'oct-up'
+          ? 12
+          : wh.params.interval === 'oct-down'
+          ? -12
+          : wh.params.interval === 'fifth-up'
+          ? 7
+          : 0.18; // Detune (+18 cents)
+      const effectiveSemi = targetMax * (wh.params.pedal / 100);
+      this.whammyWorklet.parameters.get('semitones')?.setTargetAtTime(effectiveSemi, now, smooth);
+      this.whammyWorklet.parameters.get('mix')?.setTargetAtTime(wh.params.mix / 100, now, smooth);
+      this.whammyWorklet.parameters.get('enabled')?.setValueAtTime(wh.enabled ? 1 : 0, now);
+    }
+
+    // 5. Octaver
     const oct = rig.pedals.octaver;
     setBypass('octaver', oct.enabled);
     if (this.octaverWorklet) {
@@ -821,18 +1004,16 @@ export class OpenPedalEngine {
       this.octaverWorklet.parameters.get('enabled')?.setValueAtTime(oct.enabled ? 1 : 0, now);
     }
 
-    // 5. Legendary Overdrive / Distortion (4x Oversampled AudioWorklet w/ Dynamic Sag & Slew)
+    // 6. Legendary Drive
     const d = rig.pedals.drive;
     setBypass('drive', d.enabled);
     const driveModeIdx =
       d.params.mode === 'klon' ? 0 : d.params.mode === 'ts9' ? 1 : d.params.mode === 'ds1' ? 2 : 3;
-
     if (this.driveWorklet) {
       this.driveWorklet.parameters.get('mode')?.setValueAtTime(driveModeIdx, now);
       this.driveWorklet.parameters.get('drive')?.setTargetAtTime(d.params.drive, now, smooth);
       this.driveWorklet.parameters.get('enabled')?.setValueAtTime(d.enabled ? 1 : 0, now);
     }
-
     if (d.params.mode === 'klon') {
       this.drivePreHpf!.frequency.setTargetAtTime(85, now, smooth);
       this.drivePreVoice!.frequency.setTargetAtTime(1000, now, smooth);
@@ -863,18 +1044,16 @@ export class OpenPedalEngine {
     const modeLevelTrim = d.params.mode === 'ds1' ? 0.68 : d.params.mode === 'rat' ? 0.72 : 0.88;
     this.driveLevel!.gain.setTargetAtTime((0.28 + (d.params.level / 100) * 0.95) * modeLevelTrim, now, smooth);
 
-    // 6. Legendary Fuzz (4x Oversampled Cascading AudioWorklet + Passive Tilt Tone Stack)
+    // 7. Legendary Fuzz
     const fz = rig.pedals.fuzz;
     setBypass('fuzz', fz.enabled);
     const fuzzModeIdx = fz.params.mode === 'big-muff' ? 0 : fz.params.mode === 'fuzz-face' ? 1 : 2;
     const fzTone = fz.params.tone / 100;
-
     if (this.fuzzWorklet) {
       this.fuzzWorklet.parameters.get('mode')?.setValueAtTime(fuzzModeIdx, now);
       this.fuzzWorklet.parameters.get('sustain')?.setTargetAtTime(fz.params.sustain, now, smooth);
       this.fuzzWorklet.parameters.get('enabled')?.setValueAtTime(fz.enabled ? 1 : 0, now);
     }
-
     if (fz.params.mode === 'big-muff') {
       this.fuzzPreHpf!.frequency.setTargetAtTime(62, now, smooth);
       this.fuzzPreVoice!.frequency.setTargetAtTime(185, now, smooth);
@@ -906,34 +1085,57 @@ export class OpenPedalEngine {
     const fzTrim = fz.params.mode === 'fuzz-face' ? 0.78 : 0.68;
     this.fuzzLevel!.gain.setTargetAtTime((0.28 + (fz.params.level / 100) * 0.92) * fzTrim, now, smooth);
 
-    // 7. 5-Band EQ
+    // 8. 5-Band EQ
     const eq = rig.pedals.eq;
     setBypass('eq', eq.enabled);
-    const eqVals = [
-      eq.params.band100,
-      eq.params.band250,
-      eq.params.band800,
-      eq.params.band2000,
-      eq.params.band4000
-    ];
-    eqVals.forEach((v, i) => this.eqBands[i]?.gain.setTargetAtTime(v * 1.2, now, smooth));
+    [eq.params.band100, eq.params.band250, eq.params.band800, eq.params.band2000, eq.params.band4000].forEach(
+      (v, i) => this.eqBands[i]?.gain.setTargetAtTime(v * 1.2, now, smooth)
+    );
     this.eqLevel!.gain.setTargetAtTime(Math.pow(10, eq.params.level / 20), now, smooth);
 
-    // 8. 4-Stage All-Pass Phaser
+    // 9. Phase 90 Phaser
     const ph = rig.pedals.phaser;
     setBypass('phaser', ph.enabled);
     this.phaserLfo!.frequency.setTargetAtTime(ph.params.rate, now, smooth);
     const phDepthNorm = ph.params.depth / 100;
-    const phBases = [340, 680, 1250, 2200];
-    this.phaserLfoGains.forEach((gNode, idx) => {
-      gNode.gain.setTargetAtTime(phBases[idx] * 0.72 * phDepthNorm, now, smooth);
-    });
+    [340, 680, 1250, 2200].forEach((b, idx) =>
+      this.phaserLfoGains[idx]?.gain.setTargetAtTime(b * 0.72 * phDepthNorm, now, smooth)
+    );
     this.phaserFeedback!.gain.setTargetAtTime(Math.min(0.78, (ph.params.feedback / 100) * 0.85), now, smooth);
     const phMix = ph.params.mix / 100;
     this.phaserDry!.gain.setTargetAtTime(1 - phMix * 0.45, now, smooth);
     this.phaserWet!.gain.setTargetAtTime(phMix * 0.95, now, smooth);
 
-    // 9. Opto-Tremolo
+    // 10. Jet Flanger
+    const fl = rig.pedals.flanger;
+    setBypass('flanger', fl.enabled);
+    this.flangerLfo!.frequency.setTargetAtTime(fl.params.rate, now, smooth);
+    const flDepthSec = 0.0004 + (fl.params.depth / 100) * 0.0034;
+    this.flangerLfoGain!.gain.setTargetAtTime(flDepthSec, now, smooth);
+    this.flangerFeedback!.gain.setTargetAtTime(Math.max(-0.85, Math.min(0.85, fl.params.feedback / 100)), now, smooth);
+    const flMix = fl.params.mix / 100;
+    this.flangerDry!.gain.setTargetAtTime(1 - flMix * 0.42, now, smooth);
+    this.flangerWet!.gain.setTargetAtTime(flMix * 0.95, now, smooth);
+
+    // 11. Uni-Vibe / Rotary Leslie
+    const vb = rig.pedals.vibe;
+    setBypass('vibe', vb.enabled);
+    this.vibeLfo!.frequency.setTargetAtTime(vb.params.speed, now, smooth);
+    const vbDepth = vb.params.depth / 100;
+    const isRotary = vb.params.mode === 'rotary';
+    [190, 440, 920, 2150].forEach((b, idx) => {
+      this.vibeLfoFreqGains[idx]?.gain.setTargetAtTime(b * (isRotary ? 0.35 : 0.78) * vbDepth, now, smooth);
+    });
+    const amDepth = (isRotary ? 0.42 : 0.18) * vbDepth;
+    this.vibeAmpL!.gain.setTargetAtTime(1 - amDepth, now, smooth);
+    this.vibeAmpR!.gain.setTargetAtTime(1 - amDepth, now, smooth);
+    this.vibeAmpModL!.gain.setTargetAtTime(amDepth, now, smooth);
+    this.vibeAmpModR!.gain.setTargetAtTime(isRotary ? -amDepth : amDepth * 0.5, now, smooth);
+    const vbMix = vb.params.mix / 100;
+    this.vibeDry!.gain.setTargetAtTime(1 - vbMix * 0.55, now, smooth);
+    this.vibeWet!.gain.setTargetAtTime(vbMix * 1.05, now, smooth);
+
+    // 12. Tremolo
     const tr = rig.pedals.tremolo;
     setBypass('tremolo', tr.enabled);
     if (this.tremoloLfo!.type !== tr.params.wave) {
@@ -944,7 +1146,7 @@ export class OpenPedalEngine {
     this.tremoloAmpGain!.gain.setTargetAtTime(1 - trDepth, now, smooth);
     this.tremoloLfoDepth!.gain.setTargetAtTime(trDepth, now, smooth);
 
-    // 10. True Stereo Dual-Voice Chorus
+    // 13. Chorus 3D
     const ch = rig.pedals.chorus;
     setBypass('chorus', ch.enabled);
     this.chorusLfo!.frequency.setTargetAtTime(ch.params.rate, now, smooth);
@@ -955,7 +1157,7 @@ export class OpenPedalEngine {
     this.chorusEffectDry!.gain.setTargetAtTime(1 - chMix * 0.4, now, smooth);
     this.chorusEffectWet!.gain.setTargetAtTime(chMix * 1.15, now, smooth);
 
-    // 11. True Stereo Ping-Pong Analog Delay
+    // 14. Ping-Pong Delay
     const dl = rig.pedals.delay;
     setBypass('delay', dl.enabled);
     const tSec = Math.max(0.04, dl.params.timeMs / 1000);
@@ -969,19 +1171,23 @@ export class OpenPedalEngine {
     this.delayEffectDry!.gain.setTargetAtTime(1, now, smooth);
     this.delayEffectWet!.gain.setTargetAtTime(dlMix * 1.15, now, smooth);
 
-    // 12. True Stereo Hall/Cathedral Reverb
+    // 15. 3-Mode Reverb (Hall / Spring / Shimmer)
     const rv = rig.pedals.reverb;
     setBypass('reverb', rv.enabled);
     const rvMix = rv.params.mix / 100;
+    const isShimmer = rv.enabled && rv.params.mode === 'shimmer';
+    this.reverbShimmerPitch?.parameters.get('enabled')?.setValueAtTime(isShimmer ? 1 : 0, now);
+    this.reverbShimmerGain!.gain.setTargetAtTime(isShimmer ? 0.58 : 0, now, smooth);
     this.reverbEffectDry!.gain.setTargetAtTime(1 - rvMix * 0.55, now, smooth);
     this.reverbEffectWet!.gain.setTargetAtTime(rvMix * 1.18, now, smooth);
-    const rvKey = `${rv.params.decay.toFixed(1)}-${Math.round(rv.params.dampening / 5) * 5}`;
+
+    const rvKey = `${rv.params.mode}-${rv.params.decay.toFixed(1)}-${Math.round(rv.params.dampening / 5) * 5}`;
     if (rvKey !== this.lastReverbKey) {
       this.lastReverbKey = rvKey;
-      this.reverbConvolver!.buffer = generateReverbIR(this.ctx, rv.params.decay, rv.params.dampening);
+      this.reverbConvolver!.buffer = generateReverbIR(this.ctx, rv.params.mode, rv.params.decay, rv.params.dampening);
     }
 
-    // Dual-Stage Amp & Cab
+    // Amp & Cab
     this.applyAmpCab(rig.ampCab, rig.outputMode);
   }
 
@@ -1067,6 +1273,92 @@ export class OpenPedalEngine {
     }
   }
 
+  // =========================================================================
+  // MULTITRACK STUDIO RECORDING & PLAYBACK
+  // =========================================================================
+  startStudioRecording() {
+    this.recChunksL = [];
+    this.recChunksR = [];
+    this.recTotalSamples = 0;
+    this.studioRecorderWorklet?.port.postMessage({ type: 'start' });
+  }
+
+  stopStudioRecording(): Promise<AudioBuffer | null> {
+    return new Promise((resolve) => {
+      if (!this.studioRecorderWorklet || !this.ctx) {
+        resolve(null);
+        return;
+      }
+      this.recResolve = resolve;
+      this.studioRecorderWorklet.port.postMessage({ type: 'stop' });
+    });
+  }
+
+  private finishRecordingBuffer() {
+    const resolve = this.recResolve;
+    this.recResolve = null;
+    if (!resolve || !this.ctx || this.recTotalSamples < this.ctx.sampleRate * 0.1) {
+      resolve?.(null);
+      return;
+    }
+
+    const buf = this.ctx.createBuffer(2, this.recTotalSamples, this.ctx.sampleRate);
+    const outL = buf.getChannelData(0);
+    const outR = buf.getChannelData(1);
+
+    let offset = 0;
+    for (let i = 0; i < this.recChunksL.length; i++) {
+      outL.set(this.recChunksL[i], offset);
+      outR.set(this.recChunksR[i], offset);
+      offset += this.recChunksL[i].length;
+    }
+
+    this.recChunksL = [];
+    this.recChunksR = [];
+    this.recTotalSamples = 0;
+    resolve(buf);
+  }
+
+  async decodeAudioFileToTrack(file: File, index: number): Promise<StudioTrack> {
+    if (!this.ctx) throw new Error('Inicie o motor de áudio primeiro.');
+    const ab = await file.arrayBuffer();
+    const buffer = await this.ctx.decodeAudioData(ab);
+    return {
+      id: `trk-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      name: file.name.replace(/\.[^.]+$/, ''),
+      color: pickTrackColor(index),
+      buffer,
+      peaks: extractWaveformPeaks(buffer),
+      durationSec: buffer.duration,
+      volume: 0.9,
+      pan: 0,
+      muted: false,
+      solo: false,
+      trimStartSec: 0,
+      trimEndSec: buffer.duration,
+      offsetMs: 0
+    };
+  }
+
+  studioPlayTracks(tracks: StudioTrack[], onEnded?: () => void) {
+    this.multitrackPlayer?.start(tracks, onEnded);
+  }
+
+  studioStopPlayback() {
+    this.multitrackPlayer?.stop();
+  }
+
+  studioUpdateLiveMix(tracks: StudioTrack[]) {
+    this.multitrackPlayer?.updateLiveMix(tracks);
+  }
+
+  studioGetPlayheadSec(): number {
+    return this.multitrackPlayer?.getPlayheadSec() || 0;
+  }
+
+  // =========================================================================
+  // DEVICES, TEST GUITAR, LOOPER, METRONOME, SYNTH & DRUMS
+  // =========================================================================
   async loadCustomCabIR(file: File): Promise<string> {
     if (!this.ctx) throw new Error('Inicie o motor de áudio primeiro.');
     const buf = await file.arrayBuffer();
@@ -1172,7 +1464,6 @@ export class OpenPedalEngine {
     this.tunerMuteGain.gain.setTargetAtTime(muted ? 0 : 1, this.ctx.currentTime, 0.01);
   }
 
-  // Test Guitar controls
   setTestRiffStyle(style: TestRiffStyle) {
     this.testGuitar?.setStyle(style);
   }
@@ -1202,7 +1493,6 @@ export class OpenPedalEngine {
     this.testGuitar?.stopAll();
   }
 
-  // Looper controls
   looperStomp() {
     this.looperWorklet?.port.postMessage({ type: 'stomp' });
   }
@@ -1223,7 +1513,6 @@ export class OpenPedalEngine {
     this.looperWorklet?.port.postMessage({ type: 'volume', value: vol });
   }
 
-  // Metronome controls
   metronomeStart() {
     this.metronome?.start();
   }
@@ -1244,7 +1533,6 @@ export class OpenPedalEngine {
     this.metronome?.setVolume(vol);
   }
 
-  // Piano / Synth Instrument controls
   synthNoteOn(midi: number, velocity = 0.85) {
     this.synth?.noteOn(midi, velocity);
   }
@@ -1282,7 +1570,6 @@ export class OpenPedalEngine {
     this.synth?.panic();
   }
 
-  // Drum Machine controls
   drumTrigger(pad: DrumPadId, velocity = 0.9) {
     this.drums?.trigger(pad, undefined, velocity);
   }
@@ -1322,7 +1609,6 @@ export class OpenPedalEngine {
     this.drums?.stopSequencer();
   }
 
-  // Real-time Tuner & Metering
   getTunerReading(): TunerReading {
     if (!this.ctx || !this.inputAnalyser) {
       return { note: '--', octave: 0, frequency: 0, cents: 0, clarity: 0, detected: false };
@@ -1373,6 +1659,7 @@ export class OpenPedalEngine {
     this.testGuitar?.stopAll();
     this.metronome?.stop();
     this.drums?.stopSequencer();
+    this.multitrackPlayer?.stop();
     this.synth?.panic();
     if (this.ctx) {
       this.ctx.close();

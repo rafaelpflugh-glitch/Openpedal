@@ -651,21 +651,21 @@ select {
   font-size: 0.72rem;
 }
 
-/* PEDALBOARD GRID: 2 sleek rows of 6 legendary stompboxes on desktop */
+/* PEDALBOARD GRID: 3 sleek rows of 5 legendary stompboxes on desktop */
 .pedalboard-grid {
   display: grid;
-  grid-template-columns: repeat(6, minmax(172px, 1fr));
+  grid-template-columns: repeat(5, minmax(175px, 1fr));
   gap: 12px;
   padding-bottom: 6px;
 }
 
-@media (max-width: 1180px) {
+@media (max-width: 1120px) {
   .pedalboard-grid {
-    grid-template-columns: repeat(4, minmax(168px, 1fr));
+    grid-template-columns: repeat(3, minmax(170px, 1fr));
   }
 }
 
-@media (max-width: 780px) {
+@media (max-width: 720px) {
   .pedalboard-grid {
     grid-template-columns: repeat(2, minmax(156px, 1fr));
   }
@@ -2264,4 +2264,390 @@ kbd {
   border: 1px solid rgba(245, 158, 11, 0.35);
   padding: 4px 10px;
   border-radius: 999px;
+}
+
+/* =========================================================
+   PEDAL RESET, LEGENDARY PRESETS & MULTITRACK STUDIO
+   ========================================================= */
+
+.pedal-top-right {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.pedal-reset-btn {
+  background: rgba(0, 0, 0, 0.34);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: var(--text-muted);
+  border-radius: 5px;
+  width: 21px;
+  height: 21px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.14s ease;
+}
+
+.pedal-reset-btn:hover {
+  color: #fff;
+  border-color: var(--accent-sky);
+}
+
+.mode-pills.two-col {
+  grid-template-columns: repeat(2, 1fr);
+}
+
+.btn-legends {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 8px;
+  background: linear-gradient(135deg, rgba(251, 191, 36, 0.24), rgba(249, 115, 22, 0.24));
+  border: 1px solid rgba(251, 191, 36, 0.6);
+  color: #fef3c7;
+  font-size: 0.78rem;
+  font-weight: 800;
+  cursor: pointer;
+  transition: transform 0.14s ease, filter 0.14s ease;
+}
+
+.btn-legends:hover {
+  transform: translateY(-1px);
+  filter: brightness(1.1);
+}
+
+/* LEGENDARY PRESETS MODAL */
+.legends-modal {
+  width: min(980px, 100%);
+}
+
+.legends-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 10px;
+}
+
+.legend-card {
+  text-align: left;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-main);
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  transition: all 0.15s ease;
+}
+
+.legend-card:hover {
+  border-color: rgba(251, 191, 36, 0.55);
+  background: rgba(251, 191, 36, 0.08);
+  transform: translateY(-1px);
+}
+
+.legend-card.is-active {
+  border-color: var(--accent-orange);
+  background: rgba(249, 115, 22, 0.15);
+}
+
+.legend-card-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 0.66rem;
+  font-weight: 700;
+}
+
+.legend-cat {
+  color: #fbbf24;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.legend-pedals-count {
+  color: var(--text-muted);
+}
+
+.legend-card strong {
+  font-size: 0.9rem;
+}
+
+.legend-artist {
+  font-size: 0.74rem;
+  color: #38bdf8;
+  font-weight: 600;
+}
+
+.legend-desc {
+  margin: 2px 0 0;
+  font-size: 0.73rem;
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+
+/* MULTITRACK STUDIO DRAWER */
+.studio-drawer {
+  margin: 14px 20px 0;
+  padding: 16px 18px;
+  border-radius: 16px;
+  background: linear-gradient(180deg, #141c2c 0%, #0d121d 100%);
+  border: 1px solid rgba(56, 189, 248, 0.42);
+  box-shadow: 0 14px 36px rgba(0, 0, 0, 0.48);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.studio-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.studio-title {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.studio-title h2 {
+  margin: 0;
+  font-size: 0.9rem;
+  letter-spacing: 0.06em;
+}
+
+.studio-title p {
+  margin: 2px 0 0;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.studio-transport {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 10px 12px;
+  border-radius: 11px;
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid var(--border-subtle);
+}
+
+.studio-transport-left,
+.studio-transport-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.btn-rec {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 14px;
+  border-radius: 9px;
+  background: rgba(239, 68, 68, 0.16);
+  border: 1px solid rgba(239, 68, 68, 0.6);
+  color: #fecaca;
+  font-size: 0.8rem;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.btn-rec.is-recording {
+  background: #ef4444;
+  color: #fff;
+  box-shadow: 0 0 18px rgba(239, 68, 68, 0.55);
+}
+
+.btn-export-wav {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  border-radius: 9px;
+  background: linear-gradient(135deg, #22c55e, #16a34a);
+  color: #052e16;
+  border: none;
+  font-size: 0.8rem;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.btn-export-wav:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.studio-clock {
+  font-size: 0.76rem;
+  font-weight: 700;
+  color: #cbd5e1;
+  font-variant-numeric: tabular-nums;
+  padding: 5px 10px;
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.studio-empty {
+  padding: 18px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px dashed var(--border-strong);
+  text-align: center;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+.studio-tracks-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.studio-track-card {
+  background: #111723;
+  border: 1px solid var(--border-subtle);
+  border-radius: 11px;
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.track-main-row {
+  display: grid;
+  grid-template-columns: 185px 1fr 165px;
+  gap: 12px;
+  align-items: center;
+}
+
+.track-info-col {
+  border-left: 4px solid #38bdf8;
+  padding-left: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.track-name-input {
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--text-main);
+  font-size: 0.8rem;
+  font-weight: 700;
+  padding: 2px 4px;
+  border-radius: 5px;
+  width: 100%;
+}
+
+.track-name-input:focus {
+  outline: none;
+  background: #0a0e17;
+  border-color: var(--accent-sky);
+}
+
+.track-ms-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.ms-btn {
+  width: 24px;
+  height: 22px;
+  border-radius: 5px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-muted);
+  font-size: 0.68rem;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.ms-btn.is-muted {
+  background: rgba(239, 68, 68, 0.25);
+  border-color: #ef4444;
+  color: #fecaca;
+}
+
+.ms-btn.is-solo {
+  background: rgba(250, 204, 21, 0.25);
+  border-color: #facc15;
+  color: #fef08a;
+}
+
+.btn-icon-sm.is-active-edit {
+  border-color: var(--accent-sky);
+  color: var(--accent-sky);
+}
+
+.track-wave-col {
+  width: 100%;
+  overflow: hidden;
+  border-radius: 8px;
+  border: 1px solid var(--border-subtle);
+}
+
+.studio-wave-canvas {
+  display: block;
+  width: 100%;
+  height: 54px;
+}
+
+.track-mixer-col {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.mini-slider {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 0.66rem;
+  color: var(--text-muted);
+}
+
+.mini-slider input {
+  width: 100%;
+  accent-color: var(--accent-sky);
+}
+
+.track-edit-bar {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.28);
+  border-top: 1px solid var(--border-subtle);
+}
+
+.track-edit-bar label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.72rem;
+  color: #cbd5e1;
+}
+
+.track-edit-bar input {
+  width: 100%;
+  accent-color: var(--accent-orange);
+}
+
+@media (max-width: 900px) {
+  .track-main-row,
+  .track-edit-bar {
+    grid-template-columns: 1fr;
+  }
 }

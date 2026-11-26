@@ -2,9 +2,11 @@
 // 1. Noise Gate with hysteresis and smooth attack/release
 // 2. Cry Baby / Auto-Wah State-Variable Filter Processor
 // 3. Analog Sub-Octave (-1 Oct) & Octavia (+1 Oct) Processor
-// 4. Analog Drive Processor (4x Oversampled Klon Centaur, TS9, Boss DS-1, ProCo RAT w/ Dynamic Sag & Slew)
-// 5. Analog Fuzz Processor (4x Oversampled Cascading Big Muff Pi, Germanium Fuzz Face, Super Fuzz)
-// 6. Sample-accurate Stereo Looper with Overdub & Undo
+// 4. Dual-Window Granular Pitch Shifter (Whammy & Shimmer Reverb!)
+// 5. Analog Drive Processor (4x Oversampled Klon Centaur, TS9, Boss DS-1, ProCo RAT w/ Dynamic Sag & Slew)
+// 6. Analog Fuzz Processor (4x Oversampled Cascading Big Muff Pi, Germanium Fuzz Face, Super Fuzz)
+// 7. Sample-accurate Stereo Looper with Overdub & Undo
+// 8. Lossless Stereo PCM Multitrack Studio Recorder
 
 class NoiseGateProcessor extends AudioWorkletProcessor {
   static get parameterDescriptors() {
@@ -195,6 +197,101 @@ class EnvelopeWahProcessor extends AudioWorkletProcessor {
   }
 }
 
+/**
+ * Dual-Window Granular Pitch Shifter (Digitech Whammy & Shimmer Reverb Octave Engine)
+ * Uses 2 phase-offset Hann-windowed fractional delay taps for smooth real-time pitch shifting!
+ */
+class PitchShifterProcessor extends AudioWorkletProcessor {
+  static get parameterDescriptors() {
+    return [
+      { name: 'semitones', defaultValue: 12, minValue: -12, maxValue: 12, automationRate: 'k-rate' },
+      { name: 'mix', defaultValue: 1, minValue: 0, maxValue: 1, automationRate: 'k-rate' },
+      { name: 'enabled', defaultValue: 0, minValue: 0, maxValue: 1, automationRate: 'k-rate' }
+    ];
+  }
+
+  constructor() {
+    super();
+    this.bufSize = 8192;
+    this.bufMask = this.bufSize - 1;
+    this.bufL = new Float32Array(this.bufSize);
+    this.bufR = new Float32Array(this.bufSize);
+    this.writeIdx = 0;
+    this.phase = 0;
+    this.smoothSemi = 0;
+    this.windowSamples = Math.floor(sampleRate * 0.042); // 42ms smooth grain window
+  }
+
+  readInterp(buf, delaySamples) {
+    const readPos = this.writeIdx - delaySamples;
+    const i0 = Math.floor(readPos);
+    const frac = readPos - i0;
+    const s0 = buf[i0 & this.bufMask];
+    const s1 = buf[(i0 + 1) & this.bufMask];
+    return s0 + (s1 - s0) * frac;
+  }
+
+  process(inputs, outputs, parameters) {
+    const input = inputs[0];
+    const output = outputs[0];
+    if (!input || input.length === 0 || !output || output.length === 0) return true;
+
+    const enabled = parameters.enabled[0] >= 0.5;
+    const targetSemi = parameters.semitones[0];
+    const mix = Math.max(0, Math.min(1, parameters.mix[0]));
+
+    const inL = input[0];
+    const inR = input[1] || input[0];
+    const outL = output[0];
+    const outR = output[1] || output[0];
+    const frames = outL.length;
+
+    if (!enabled) {
+      for (let i = 0; i < frames; i++) {
+        outL[i] = inL[i];
+        if (output[1]) outR[i] = inR[i];
+      }
+      return true;
+    }
+
+    const smoothCoeff = Math.exp(-1 / (sampleRate * 0.015));
+    const win = this.windowSamples;
+
+    for (let i = 0; i < frames; i++) {
+      this.smoothSemi = smoothCoeff * this.smoothSemi + (1 - smoothCoeff) * targetSemi;
+      const ratio = Math.pow(2, this.smoothSemi / 12);
+      const rateDelta = (1 - ratio) / win;
+
+      this.bufL[this.writeIdx] = inL[i];
+      this.bufR[this.writeIdx] = inR[i];
+
+      this.phase += rateDelta;
+      if (this.phase >= 1) this.phase -= 1;
+      else if (this.phase < 0) this.phase += 1;
+
+      const p1 = this.phase;
+      const p2 = p1 >= 0.5 ? p1 - 0.5 : p1 + 0.5;
+
+      // Hann window crossfade between the 2 overlapping delay taps
+      const g1 = 0.5 - 0.5 * Math.cos(2 * Math.PI * p1);
+      const g2 = 0.5 - 0.5 * Math.cos(2 * Math.PI * p2);
+
+      const d1 = p1 * win + 2;
+      const d2 = p2 * win + 2;
+
+      const wetL = this.readInterp(this.bufL, d1) * g1 + this.readInterp(this.bufL, d2) * g2;
+      const wetR = this.readInterp(this.bufR, d1) * g1 + this.readInterp(this.bufR, d2) * g2;
+
+      outL[i] = inL[i] * (1 - mix) + wetL * mix;
+      if (output[1]) outR[i] = inR[i] * (1 - mix) + wetR * mix;
+
+      this.writeIdx = (this.writeIdx + 1) & this.bufMask;
+    }
+
+    return true;
+  }
+}
+
 class OctaverProcessor extends AudioWorkletProcessor {
   static get parameterDescriptors() {
     return [
@@ -300,12 +397,6 @@ class OctaverProcessor extends AudioWorkletProcessor {
   }
 }
 
-/**
- * 4x Oversampled Analog Overdrive / Distortion Processor
- * Models real dynamic bias sag, diode asymmetry, feedback-loop clean mixing (TS9/Klon),
- * and LM308 op-amp slew-rate limiting (RAT/DS-1) with zero digital aliasing!
- * Modes: 0 = Klon Centaur, 1 = Tube Screamer TS9, 2 = Boss DS-1, 3 = ProCo RAT
- */
 class AnalogDriveProcessor extends AudioWorkletProcessor {
   static get parameterDescriptors() {
     return [
@@ -354,29 +445,25 @@ class AnalogDriveProcessor extends AudioWorkletProcessor {
     const sagAtt = Math.exp(-1 / (osRate * 0.005));
     const sagRel = Math.exp(-1 / (osRate * 0.085));
 
-    // Mode-specific analog circuit parameters
     const preGain =
       mode === 0
-        ? 1.5 + Math.pow(norm, 1.35) * 9.5 // Klon: transparent golden drive
+        ? 1.5 + Math.pow(norm, 1.35) * 9.5
         : mode === 1
-        ? 2.2 + Math.pow(norm, 1.3) * 14.0 // TS9: singing blues-rock sustain
+        ? 2.2 + Math.pow(norm, 1.3) * 14.0
         : mode === 2
-        ? 4.2 + Math.pow(norm, 1.2) * 26.0 // DS-1: hard silicon diode crunch
-        : 3.4 + Math.pow(norm, 1.25) * 22.0; // RAT: thick LM308 op-amp roar
+        ? 4.2 + Math.pow(norm, 1.2) * 26.0
+        : 3.4 + Math.pow(norm, 1.25) * 22.0;
 
-    // Op-amp slew limit per oversampled tick (rounds harsh brittle spikes!)
     const maxSlew = mode === 3 ? 0.055 : mode === 2 ? 0.085 : 0.14;
 
     for (let i = 0; i < frames; i++) {
       const currIn = 0.5 * (inL[i] + inR[i]);
       let downSampled = 0;
 
-      // 4x Oversampling loop
       for (let os = 1; os <= 4; os++) {
         const frac = os * 0.25;
         const x = this.prevIn + (currIn - this.prevIn) * frac;
 
-        // Track dynamic envelope for realistic transistor/diode sag
         const ax = Math.abs(x);
         if (ax > this.sagEnv) {
           this.sagEnv = sagAtt * this.sagEnv + (1 - sagAtt) * ax;
@@ -384,13 +471,11 @@ class AnalogDriveProcessor extends AudioWorkletProcessor {
           this.sagEnv = sagRel * this.sagEnv + (1 - sagRel) * ax;
         }
 
-        // Dynamic bias shift adds living 2nd-order even harmonics on pick attack!
         const dynBias = this.sagEnv * (mode === 1 ? 0.42 : mode === 0 ? 0.28 : 0.22);
         const driven = x * preGain;
 
         let shaped = 0;
         if (mode === 0) {
-          // Klon Centaur: Germanium soft diode clipping + parallel dynamic clean blend
           const clipPos = Math.tanh((driven + dynBias) * 0.85);
           const clipNeg = Math.tanh((driven + dynBias) * 0.78);
           const clipped = driven >= 0 ? clipPos : clipNeg;
@@ -398,31 +483,25 @@ class AnalogDriveProcessor extends AudioWorkletProcessor {
           const dirtyWeight = 0.45 + norm * 0.55;
           shaped = clipped * dirtyWeight + x * 1.4 * cleanWeight;
         } else if (mode === 1) {
-          // Tube Screamer TS9: real op-amp feedback loop adds dry input to diode-clipped path!
           const u = driven + dynBias;
-          // Asymmetric 2-diode vs 1-diode soft clipping
           const diodeClip = u >= 0 ? Math.tanh(u * 1.1) : Math.tanh(u * 0.82) * 1.06;
           shaped = diodeClip * 0.86 + x * 0.32;
         } else if (mode === 2) {
-          // Boss DS-1: hard symmetric silicon diodes with smooth knee transition
           const u = driven + dynBias * 0.5;
           const soft = (2 / Math.PI) * Math.atan(u * 1.15);
           const clamp = Math.max(-0.78, Math.min(0.78, u * 0.45));
           shaped = soft * 0.62 + clamp * 0.38;
         } else {
-          // ProCo RAT: aggressive asymmetric silicon hard-clipping
           const u = driven + dynBias * 0.7;
           const raw = (2 / Math.PI) * Math.atan(u * 1.25);
           shaped = u >= 0 ? Math.min(0.84, raw * 1.08) : Math.max(-0.74, raw * 0.96);
         }
 
-        // Op-amp Slew-Rate Limiter (tames harsh digital edges naturally!)
         const delta = shaped - this.slewState;
         if (delta > maxSlew) this.slewState += maxSlew;
         else if (delta < -maxSlew) this.slewState -= maxSlew;
         else this.slewState = shaped;
 
-        // 2-pole Anti-Aliasing Low-Pass filter at 11kHz before decimation
         this.aaLp1 += aaAlpha * (this.slewState - this.aaLp1);
         this.aaLp2 += aaAlpha * (this.aaLp1 - this.aaLp2);
         downSampled = this.aaLp2;
@@ -430,7 +509,6 @@ class AnalogDriveProcessor extends AudioWorkletProcessor {
 
       this.prevIn = currIn;
 
-      // DC Blocker removes any sub-sonic offset from asymmetric clipping
       const dcBlocked = 0.994 * (this.dcOut + downSampled - this.dcIn);
       this.dcIn = downSampled;
       this.dcOut = dcBlocked;
@@ -443,11 +521,6 @@ class AnalogDriveProcessor extends AudioWorkletProcessor {
   }
 }
 
-/**
- * 4x Oversampled Analog Fuzz Processor
- * Models genuine multi-stage cascading transistor fuzz with dynamic bias starvation & violin sustain!
- * Modes: 0 = Big Muff Pi (2 cascading stages), 1 = Germanium Fuzz Face, 2 = Super Fuzz (Octave)
- */
 class AnalogFuzzProcessor extends AudioWorkletProcessor {
   static get parameterDescriptors() {
     return [
@@ -516,11 +589,9 @@ class AnalogFuzzProcessor extends AudioWorkletProcessor {
 
         let out = 0;
         if (mode === 0) {
-          // BIG MUFF Pi: Stage 1 Transistor Clip -> Inter-stage Smooth Filter -> Stage 2 Clip (endless creamy violin sustain!)
           const g1 = 4.5 + Math.pow(norm, 1.15) * 18.0;
           const s1 = Math.tanh((x + this.sagEnv * 0.18) * g1);
 
-          // Coupling cap HPF + warm LPF between Stage 1 and Stage 2 (prevents flubby buzz!)
           const hp = 0.996 * (this.interHpOut + s1 - this.interHpIn);
           this.interHpIn = s1;
           this.interHpOut = hp;
@@ -529,22 +600,17 @@ class AnalogFuzzProcessor extends AudioWorkletProcessor {
           const g2 = 2.6 + norm * 7.5;
           out = Math.tanh((this.interLp - this.sagEnv * 0.12) * g2) * 0.88;
         } else if (mode === 1) {
-          // GERMANIUM FUZZ FACE: Rich, biased asymmetric wool with dynamic voltage sag (Hendrix!)
-          // Cleans up smoothly on soft notes, blooms into thick syrupy wool on hard notes
           const g = 2.4 + Math.pow(norm, 1.3) * 14.5;
           const bias = 0.16 + this.sagEnv * 0.65;
           const u = x * g + bias;
           const clipped = u >= 0 ? Math.tanh(u * 0.92) : Math.tanh(u * 0.62) * 1.15;
-          // Gentle transistor slew rounds top end like vintage NKT275 germanium
           const maxSlew = 0.048;
           const d = clipped - this.slew;
           this.slew += Math.max(-maxSlew, Math.min(maxSlew, d));
           out = this.slew * 0.92;
         } else {
-          // UNIVOX SUPER FUZZ: Wild full-wave octave-doubling fuzz + harmonic snarl
           const g = 5.0 + Math.pow(norm, 1.2) * 19.0;
           const s1 = Math.tanh(x * g);
-          // Full-wave rectification creates aggressive upper-octave harmonic blend
           const octRect = Math.abs(s1) * 1.2 - 0.45;
           out = Math.tanh((s1 * 0.65 + octRect * 0.55) * 2.2) * 0.82;
         }
@@ -779,9 +845,78 @@ class LooperProcessor extends AudioWorkletProcessor {
   }
 }
 
+/**
+ * Lossless Stereo PCM Multitrack Studio Recorder
+ * Captures isolated live audio (before multitrack playback bus) in 4096-frame batches
+ * so overdubbing Track 2 while listening to Track 1 has zero bleed and sample-accurate sync!
+ */
+class StudioRecorderProcessor extends AudioWorkletProcessor {
+  constructor() {
+    super();
+    this.recording = false;
+    this.chunkSize = 4096;
+    this.accL = new Float32Array(this.chunkSize);
+    this.accR = new Float32Array(this.chunkSize);
+    this.accPos = 0;
+
+    this.port.onmessage = (e) => {
+      const msg = e.data;
+      if (!msg || !msg.type) return;
+      if (msg.type === 'start') {
+        this.accPos = 0;
+        this.recording = true;
+      } else if (msg.type === 'stop') {
+        this.recording = false;
+        if (this.accPos > 0) {
+          const tailL = this.accL.slice(0, this.accPos);
+          const tailR = this.accR.slice(0, this.accPos);
+          this.port.postMessage({ type: 'chunk', left: tailL, right: tailR }, [tailL.buffer, tailR.buffer]);
+          this.accPos = 0;
+        }
+        this.port.postMessage({ type: 'stopped' });
+      }
+    };
+  }
+
+  process(inputs, outputs) {
+    const input = inputs[0];
+    const output = outputs[0];
+    if (!output || output.length === 0) return true;
+
+    const inL = input && input[0] ? input[0] : null;
+    const inR = input && input[1] ? input[1] : inL;
+    const outL = output[0];
+    const outR = output[1] || output[0];
+    const frames = outL.length;
+
+    for (let i = 0; i < frames; i++) {
+      const sL = inL ? inL[i] : 0;
+      const sR = inR ? inR[i] : 0;
+      outL[i] = sL;
+      if (output[1]) outR[i] = sR;
+
+      if (this.recording) {
+        this.accL[this.accPos] = sL;
+        this.accR[this.accPos] = sR;
+        this.accPos++;
+        if (this.accPos >= this.chunkSize) {
+          const chunkL = this.accL.slice(0);
+          const chunkR = this.accR.slice(0);
+          this.port.postMessage({ type: 'chunk', left: chunkL, right: chunkR }, [chunkL.buffer, chunkR.buffer]);
+          this.accPos = 0;
+        }
+      }
+    }
+
+    return true;
+  }
+}
+
 registerProcessor('noise-gate-processor', NoiseGateProcessor);
 registerProcessor('envelope-wah-processor', EnvelopeWahProcessor);
+registerProcessor('pitch-shifter-processor', PitchShifterProcessor);
 registerProcessor('octaver-processor', OctaverProcessor);
 registerProcessor('analog-drive-processor', AnalogDriveProcessor);
 registerProcessor('analog-fuzz-processor', AnalogFuzzProcessor);
 registerProcessor('looper-processor', LooperProcessor);
+registerProcessor('studio-recorder-processor', StudioRecorderProcessor);

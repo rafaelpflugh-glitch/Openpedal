@@ -2,11 +2,14 @@ export type PedalId =
   | 'gate'
   | 'compressor'
   | 'wah'
+  | 'whammy'
   | 'octaver'
   | 'drive'
   | 'fuzz'
   | 'eq'
   | 'phaser'
+  | 'flanger'
+  | 'vibe'
   | 'tremolo'
   | 'chorus'
   | 'delay'
@@ -18,7 +21,13 @@ export type FuzzMode = 'big-muff' | 'fuzz-face' | 'super-fuzz';
 
 export type WahMode = 'manual' | 'auto-env' | 'lfo';
 
+export type WhammyInterval = 'oct-up' | 'oct-down' | 'fifth-up' | 'detune';
+
+export type VibeMode = 'univibe' | 'rotary';
+
 export type TremoloWave = 'sine' | 'triangle' | 'square';
+
+export type ReverbMode = 'hall' | 'spring' | 'shimmer';
 
 export type AmpModel = 'clean-twin' | 'british-crunch' | 'modern-metal' | 'acoustic-direct';
 
@@ -33,95 +42,119 @@ export type InputSourceMode = 'live' | 'test-riff' | 'di-file';
 export type TestRiffStyle = 'clean-arpeggio' | 'blues-lick' | 'rock-power' | 'gilmour-lead' | 'metal-chug';
 
 export interface GateParams {
-  threshold: number; // -80 to -15 dB
-  release: number;   // 0.02 to 0.5 s
+  threshold: number;
+  release: number;
   humFilter60Hz: boolean;
 }
 
 export interface CompressorParams {
-  threshold: number; // -50 to 0 dB
-  ratio: number;     // 1 to 16
-  attack: number;    // 0.002 to 0.1 s
-  makeup: number;    // 0 to 18 dB
+  threshold: number;
+  ratio: number;
+  attack: number;
+  makeup: number;
 }
 
 export interface WahParams {
   mode: WahMode;
-  position: number; // 0 to 100 (pedal heel-toe, sensitivity, or LFO speed)
-  q: number;        // 1.5 to 10
-  range: number;    // 15 to 100
+  position: number;
+  q: number;
+  range: number;
+}
+
+export interface WhammyParams {
+  interval: WhammyInterval;
+  pedal: number; // 0 to 100 % bend toward target interval
+  mix: number;   // 0 to 100 %
 }
 
 export interface OctaverParams {
-  dry: number;   // 0 to 100
-  sub: number;   // 0 to 100 (-1 Octave)
-  octUp: number; // 0 to 100 (+1 Octave)
+  dry: number;
+  sub: number;
+  octUp: number;
 }
 
 export interface DriveParams {
   mode: DriveMode;
-  drive: number; // 0 to 100
-  tone: number;  // 0 to 100
-  level: number; // 0 to 100
+  drive: number;
+  tone: number;
+  level: number;
 }
 
 export interface FuzzParams {
   mode: FuzzMode;
-  sustain: number; // 0 to 100
-  tone: number;    // 0 to 100 (Big Muff tilt!)
-  level: number;   // 0 to 100
+  sustain: number;
+  tone: number;
+  level: number;
 }
 
 export interface EqParams {
-  band100: number; // -12 to +12 dB
+  band100: number;
   band250: number;
   band800: number;
   band2000: number;
   band4000: number;
-  level: number;   // -12 to +12 dB
+  level: number;
 }
 
 export interface PhaserParams {
-  rate: number;     // 0.1 to 6 Hz
+  rate: number;
+  depth: number;
+  feedback: number;
+  mix: number;
+}
+
+export interface FlangerParams {
+  rate: number;     // 0.08 to 4 Hz
   depth: number;    // 0 to 100 %
-  feedback: number; // 0 to 80 %
+  feedback: number; // -85 to +85 %
   mix: number;      // 0 to 100 %
 }
 
-export interface TremoloParams {
-  wave: TremoloWave;
-  rate: number;  // 0.5 to 14 Hz
-  depth: number; // 0 to 100 %
-}
-
-export interface ChorusParams {
-  rate: number;  // 0.1 to 6 Hz
+export interface VibeParams {
+  mode: VibeMode;
+  speed: number; // 0.3 to 9 Hz
   depth: number; // 0 to 100 %
   mix: number;   // 0 to 100 %
 }
 
+export interface TremoloParams {
+  wave: TremoloWave;
+  rate: number;
+  depth: number;
+}
+
+export interface ChorusParams {
+  rate: number;
+  depth: number;
+  mix: number;
+}
+
 export interface DelayParams {
-  timeMs: number;   // 40 to 1000 ms
-  feedback: number; // 0 to 85 %
-  tone: number;     // 0 to 100 %
-  mix: number;      // 0 to 100 %
+  timeMs: number;
+  feedback: number;
+  tone: number;
+  mix: number;
 }
 
 export interface ReverbParams {
-  decay: number;     // 0.4 to 6 s
-  dampening: number; // 0 to 100 %
-  mix: number;       // 0 to 100 %
+  mode: ReverbMode;
+  decay: number;
+  dampening: number;
+  mix: number;
 }
 
 export interface PedalParamsMap {
   gate: GateParams;
   compressor: CompressorParams;
   wah: WahParams;
+  whammy: WhammyParams;
   octaver: OctaverParams;
   drive: DriveParams;
   fuzz: FuzzParams;
   eq: EqParams;
   phaser: PhaserParams;
+  flanger: FlangerParams;
+  vibe: VibeParams;
   tremolo: TremoloParams;
   chorus: ChorusParams;
   delay: DelayParams;
@@ -137,12 +170,12 @@ export interface PedalState<T extends PedalId = PedalId> {
 export interface AmpCabState {
   ampEnabled: boolean;
   ampModel: AmpModel;
-  gain: number;     // 0 to 100
-  bass: number;     // 0 to 100
-  mid: number;      // 0 to 100
-  treble: number;   // 0 to 100
-  presence: number; // 0 to 100
-  master: number;   // 0 to 100
+  gain: number;
+  bass: number;
+  mid: number;
+  treble: number;
+  presence: number;
+  master: number;
   cabEnabled: boolean;
   cabModel: CabModel;
   customIrName?: string;
@@ -153,13 +186,15 @@ export interface RigState {
   pedals: { [K in PedalId]: PedalState<K> };
   ampCab: AmpCabState;
   outputMode: OutputMode;
-  inputGainDb: number;   // -12 to +24 dB
-  masterVolume: number;  // 0 to 100
+  inputGainDb: number;
+  masterVolume: number;
 }
 
 export interface Preset {
   id: string;
   name: string;
+  artist?: string;
+  description?: string;
   category: string;
   factory?: boolean;
   rig: RigState;
@@ -199,4 +234,20 @@ export interface MidiBinding {
   messageType: 'cc' | 'pc' | 'note';
   channel: number;
   number: number;
+}
+
+export interface StudioTrack {
+  id: string;
+  name: string;
+  color: string;
+  buffer: AudioBuffer;
+  peaks: number[]; // normalized 0..1 waveform bars for canvas visualization
+  durationSec: number;
+  volume: number;    // 0..1.5
+  pan: number;       // -1..+1
+  muted: boolean;
+  solo: boolean;
+  trimStartSec: number;
+  trimEndSec: number;
+  offsetMs: number;  // -500 to +500 ms sync alignment
 }
